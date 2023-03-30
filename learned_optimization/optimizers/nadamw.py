@@ -168,7 +168,7 @@ class NAdamW(base.Optimizer):
         "use_bias_correction": use_bias_correction
     }
 
-  def init(self, params, model_state=None, num_steps=None):
+  def init(self, params, model_state=None, num_steps=0):
     return NAdamWState(
         iteration=jnp.asarray(0, dtype=jnp.int64),
         params=params,
