@@ -45,7 +45,7 @@ setuptools.setup(
         #'jax>=0.2.6',
         #'jaxlib>=0.1.68',
         'nose',
-        'dm-launchpad-nightly',
+        'dm-launchpad-nightly==0.5.2',
         'tqdm>=4.62.3',
         'flax',
         'dm-haiku==0.0.5',
