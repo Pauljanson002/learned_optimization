@@ -189,9 +189,9 @@ def _image_map_fn(cfg: Mapping[str, Any], batch: Batch) -> Batch:
     assert cfg["normalize_std"] is not None
     image = tf.cast(batch["image"], tf.float32)
     image -= tf.constant(
-        cfg["normalize_mean"], shape=[1, 1, 1, 3], dtype=image.dtype)
+        cfg["normalize_mean"], shape=[ 1, 1, 3], dtype=image.dtype)
     batch["image"] = image / tf.constant(
-        cfg["normalize_std"], shape=[1, 1, 1, 3], dtype=image.dtype)
+        cfg["normalize_std"], shape=[ 1, 1, 3], dtype=image.dtype)
 
   if cfg["convert_to_black_and_white"]:
     batch["image"] = tf.reduce_mean(batch["image"], axis=3, keepdims=True)
@@ -254,7 +254,13 @@ def tfds_image_classification_datasets(
     ds = ds.prefetch(prefetch_batches)
     return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
 
-  builder = tfds.builder(datasetname)
+  if datasetname == 'imagenet_resized':
+    from tensorflow_datasets.datasets.imagenet_resized.imagenet_resized_dataset_builder import ImagenetResizedConfig, Builder
+    irc = ImagenetResizedConfig(size=64,name='imagenet_resized')
+    builder = Builder(config=irc)
+  else:
+    builder = tfds.builder(datasetname)
+
   num_classes = builder.info.features["label"].num_classes
 
   if stack_channels == 1:
