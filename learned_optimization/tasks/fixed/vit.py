@@ -27,7 +27,7 @@ from learned_optimization.tasks import base
 from learned_optimization.tasks.datasets import image
 import ml_collections
 import numpy as onp
-from vision_transformer.vit_jax import models_vit
+from vit_jax import models_vit
 
 
 class VisionTransformerTask(base.Task):
@@ -68,7 +68,7 @@ def wide16_config():
   """A config based on the ViT-S_16 config but with less layers."""
   config = ml_collections.ConfigDict()
   config.model_name = "small16_config"
-  config.patches = ml_collections.ConfigDict({"size": (16, 16)})
+  config.patches = ml_collections.ConfigDict({"size": (64, 64)})
   config.hidden_size = 384
   config.transformer = ml_collections.ConfigDict()
   config.transformer.mlp_dim = 1536
