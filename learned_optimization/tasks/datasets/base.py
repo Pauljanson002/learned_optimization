@@ -248,7 +248,7 @@ def tfds_image_classification_datasets(
   def make_iter(split: str) -> Iterator[Batch]:
     ds = tfds.load(datasetname, split=split)
     ds = ds.repeat(-1)
-    ds = ds.map(functools.partial(_image_map_fn, cfg))
+    ds = ds.map(functools.partial(_image_map_fn, cfg))#,num_parallel_calls=24)
     ds = ds.shuffle(shuffle_buffer_size)
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.prefetch(prefetch_batches)
@@ -256,7 +256,7 @@ def tfds_image_classification_datasets(
 
   if datasetname == 'imagenet_resized':
     from tensorflow_datasets.datasets.imagenet_resized.imagenet_resized_dataset_builder import ImagenetResizedConfig, Builder
-    irc = ImagenetResizedConfig(size=64,name='imagenet_resized')
+    irc = ImagenetResizedConfig(size=image_size[0],name='imagenet_resized')
     builder = Builder(config=irc)
   else:
     builder = tfds.builder(datasetname)
@@ -273,10 +273,10 @@ def tfds_image_classification_datasets(
 
   abstract_batch = {
       "image":
-          jax.ShapedArray(
+          jax.core.ShapedArray(
               (batch_size,) + image_size + output_channel, dtype=jnp.float32),
       "label":
-          jax.ShapedArray((batch_size,), dtype=jnp.int32)
+          jax.core.ShapedArray((batch_size,), dtype=jnp.int32)
   }
   return Datasets(
       *[make_iter(split) for split in splits],
@@ -503,8 +503,8 @@ def tfrecord_image_classification_datasets(
     shape = (batch_size,) + image_size + (stack_channels,)
 
   abstract_batch = {
-      "image": jax.ShapedArray(shape, jnp.float32),
-      "label": jax.ShapedArray((batch_size,), jnp.int32)
+      "image": jax.core.ShapedArray(shape, jnp.float32),
+      "label": jax.core.ShapedArray((batch_size,), jnp.int32)
   }
 
   return Datasets(

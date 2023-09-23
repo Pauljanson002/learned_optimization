@@ -69,11 +69,13 @@ def cifar100_datasets(
     batch_size: int,
     image_size: Tuple[int, int] = (32, 32),
     data_fraction: float = 1.,
+    prefetch_batches: int = 1000,
 ) -> base.Datasets:
   perc = min(1, int(80 * data_fraction))
   splits = (f"train[0:{perc}%]", "train[80%:90%]", "train[90%:]", "test")
   return base.preload_tfds_image_classification_datasets(
-      "cifar100", splits, batch_size=batch_size, image_size=image_size)
+      "cifar100", splits, batch_size=batch_size, image_size=image_size,
+      prefetch_batches=prefetch_batches)
 
 
 @base.dataset_lru_cache
@@ -81,6 +83,7 @@ def cifar100_datasets(
 def svhn_cropped_datasets(batch_size: int,
                           image_size: Tuple[int, int] = (32, 32),
                           data_fraction: float = 1.,
+                          prefetch_batches: int = 300,
                           **kwargs) -> base.Datasets:
   perc = min(1, int(80 * data_fraction))
   splits = (f"train[0:{perc}%]", "train[80%:90%]", "train[90%:]", "test")
@@ -89,6 +92,7 @@ def svhn_cropped_datasets(batch_size: int,
       splits,
       batch_size=batch_size,
       image_size=image_size,
+      prefetch_batches=prefetch_batches,
       **kwargs)
 
 
