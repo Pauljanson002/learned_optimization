@@ -79,11 +79,11 @@ class TeacherForcedRNNLM(base.Task):
   def init(self, key: PRNGKey) -> base.Params:
     batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
                                    self.datasets.abstract_batch)
-    return self._mod.init(key, batch["obs"])
+    return self._mod.init(key, batch["Image"])
 
   def loss(self, params: Params, key: PRNGKey, data: Any) -> jnp.ndarray:  # pytype: disable=signature-mismatch  # jax-ndarray
-    obs = data["obs"]
-    target = data["target"]
+    obs = data["Image"]
+    target = data["label"]
 
     max_vocab_size = self.datasets.extra_info["vocab_size"]
     vocab_size = self._vocab_size
@@ -94,10 +94,10 @@ class TeacherForcedRNNLM(base.Task):
       target = jnp.where(target > vocab_size, 1 + target % (vocab_size - 1),
                          target)
 
-    logits = self._mod.apply(params, key, data["obs"])
+    logits = self._mod.apply(params, key, data["Image"])
     vec_loss = softmax_cross_entropy(logits=logits, labels=target)
 
-    mask = (data["obs"] != 0)
+    mask = (data["Image"] != 0)
 
     return jnp.sum(vec_loss * mask) / jnp.sum(mask)
 

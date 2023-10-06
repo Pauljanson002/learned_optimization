@@ -78,8 +78,8 @@ class ParametricLMTransformer(base.TaskFamily):
         self._net = hk.transform(self._hk_forward)
 
       def _hk_forward(self, batch):
-        obs = batch["obs"]
-        target = batch["target"]
+        obs = batch["Image"]
+        target = batch["label"]
 
         if vocab_size < max_vocab_size:
           # if the target vocab is smaller, we use a mod to keep all

@@ -219,6 +219,8 @@ class TruncatedPES(gradient_learner.GradientEstimator):
     n_yses = []
     metrics = []
 
+    # print("\nBefore maybe_stacked_es_unroll() loop\n")
+
     # TODO(lmetz) consider switching this to be a jax.lax.scan when inside jit.
     for i in range(self.trunc_length // self.steps_per_jit):
       if datas_list is None:
@@ -255,6 +257,10 @@ class TruncatedPES(gradient_learner.GradientEstimator):
       p_yses.append(p_ys)
       n_yses.append(n_ys)
 
+    # print("\nBefore maybe_stacked_es_unroll() loop\n")
+
+    # print("\nBefore compute_pes_grad()\n")
+
     loss, es_grad, new_accumulator, p_ys, delta_loss = compute_pes_grad(
         p_yses,
         n_yses,
@@ -262,6 +268,8 @@ class TruncatedPES(gradient_learner.GradientEstimator):
         vec_pos,
         self.std,
         sign_delta_loss_scalar=self.sign_delta_loss_scalar)
+    
+    # print("\nafter compute_pes_grad()\n")
 
     unroll_info = gradient_learner.UnrollInfo(
         loss=p_ys.loss,

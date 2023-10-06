@@ -63,7 +63,7 @@ def smoketest_optimizer(optimizer: base.Optimizer, strict_types: bool = True):
     struct1 = jax.tree_util.tree_structure(opt_state)
 
     def shape_fn(x):
-      return jax.ShapedArray(jnp.asarray(x).shape, jnp.asarray(x).dtype)
+      return jax.core.ShapedArray(jnp.asarray(x).shape, jnp.asarray(x).dtype)
 
     shape1 = jax.tree_util.tree_map(shape_fn, opt_state)
     p = optimizer.get_params(opt_state)

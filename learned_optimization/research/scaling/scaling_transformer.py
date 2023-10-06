@@ -227,7 +227,7 @@ def ScalingTasks_Transformer(model_size, layers):
   vocab_size = ds.extra_info["vocab_size"]
 
   def forward(batch):
-    x = batch["obs"]
+    x = batch["Image"]
     logits = Transformer(
         num_heads=8,
         num_layers=layers,
@@ -236,7 +236,7 @@ def ScalingTasks_Transformer(model_size, layers):
         dropout_rate=0.1)(
             x, mask=(x != 0), is_training=True)
     loss = base.softmax_cross_entropy(
-        logits=logits, labels=jax.nn.one_hot(batch["target"], vocab_size))
+        logits=logits, labels=jax.nn.one_hot(batch["label"], vocab_size))
     return jnp.mean(loss)
 
   return _make_task(forward, ds)

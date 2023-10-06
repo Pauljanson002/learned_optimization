@@ -62,7 +62,7 @@ class TruncatedPESNoHystSameData(gradient_learner.GradientEstimator):
     self.data_buffer_size = data_buffer_size
 
     self.step_abstract_shape = jax.tree_util.tree_map(
-        lambda x: jax.ShapedArray(x.shape, x.dtype),
+        lambda x: jax.core.ShapedArray(x.shape, x.dtype),
         self.truncated_step.get_batch(self.steps_per_jit))
 
     # The shape of theta is not known at gradient estimator initialization time
@@ -75,7 +75,7 @@ class TruncatedPESNoHystSameData(gradient_learner.GradientEstimator):
     nt = self.truncated_step.num_tasks
     theta = worker_weights.theta
     epsilon = jax.tree_util.tree_map(
-        lambda x: jax.ShapedArray([nt] + list(x.shape), x.dtype), theta)
+        lambda x: jax.core.ShapedArray([nt] + list(x.shape), x.dtype), theta)
     state = self.grad_est.init_worker_state(worker_weights, key)
 
     self.circular_buffer = circular_buffer.CircularBuffer(
@@ -86,10 +86,10 @@ class TruncatedPESNoHystSameData(gradient_learner.GradientEstimator):
                 epsilon,
             "key":
                 jax.tree_util.tree_map(
-                    lambda x: jax.ShapedArray(x.shape, x.dtype), key),
+                    lambda x: jax.core.ShapedArray(x.shape, x.dtype), key),
             "p_state":
                 jax.tree_util.tree_map(
-                    lambda x: jax.ShapedArray(x.shape, x.dtype),
+                    lambda x: jax.core.ShapedArray(x.shape, x.dtype),
                     state.pos_state),
         }, self.data_buffer_size)
 

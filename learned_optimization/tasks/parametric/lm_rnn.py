@@ -121,13 +121,13 @@ class ParametricLMRNN(base.TaskFamily):
             hk.transform(_forward))
         batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
                                        self.datasets.abstract_batch)
-        seq = batch["obs"]
+        seq = batch["Image"]
         return init_net(rng, seq)
 
       def loss(self, params: Params, rng: PRNGKey, data: Batch) -> jnp.ndarray:  # pytype: disable=signature-mismatch  # jax-ndarray
         net = hk.without_apply_rng(hk.transform(_forward))
-        obs = data["obs"]
-        target = data["target"]
+        obs = data["Image"]
+        target = data["label"]
 
         if vocab_size < max_vocab_size:
           # if the target vocab is smaller, we use a mod to keep all
@@ -142,7 +142,7 @@ class ParametricLMRNN(base.TaskFamily):
         vec_loss = base.softmax_cross_entropy(logits=logits, labels=labels)
 
         # We assume that zero denotes a padding token.
-        mask = (data["obs"] != 0)
+        mask = (data["Image"] != 0)
 
         return jnp.sum(vec_loss * mask) / jnp.sum(mask)
 

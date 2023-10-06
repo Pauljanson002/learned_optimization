@@ -117,6 +117,7 @@ def truncated_unroll(
     else:
       extra_kwargs = {}
 
+    # print("inside scan before unroll_step()")
     state, outs = truncated_step.unroll_step(
         theta,
         state,
@@ -125,12 +126,15 @@ def truncated_unroll(
         outer_state=outer_state,
         theta_is_vector=theta_is_vector,
         **extra_kwargs)
+    # print("inside scan after unroll_step()")
     return state, outs
-
+  
   key_and_data = jax.random.split(key, unroll_length), datas
   if wrap_step_fn is not None:
     step_fn = wrap_step_fn(step_fn)
+  # print("before jax.lax.scan(step_fn)")
   state, ys = jax.lax.scan(step_fn, state, key_and_data)
+  # print("after jax.lax.scan(step_fn)")
   return state, ys
 
 

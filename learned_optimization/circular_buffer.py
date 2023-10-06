@@ -39,7 +39,7 @@ class CircularBuffer(Generic[T]):
     """Initializer.
 
     Args:
-      abstract_value: a pytree of jax.ShapedArray with the shape of each element
+      abstract_value: a pytree of jax.core.ShapedArray with the shape of each element
         in the circular buffer.
       size: length of circular buffer.
     """

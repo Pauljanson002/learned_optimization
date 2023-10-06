@@ -383,7 +383,7 @@ def gradient_worker_compute(
   theta_model_state = worker_weights.theta_model_state
 
   theta_shape = jax.tree_util.tree_map(
-      lambda x: jax.ShapedArray(x.shape, x.dtype), theta)
+      lambda x: jax.core.ShapedArray(x.shape, x.dtype), theta)
   grads_accum = _tree_zeros_on_device(theta_shape, device)
 
   metrics_list = []
@@ -405,8 +405,11 @@ def gradient_worker_compute(
           "compute_gradient_estimate for estimator name %s and cfg name %s",
           estimator.task_name(), estimator.cfg_name())
       with profile.Profile(f"unroll__metrics{with_metrics}"):
+        # print("\n\n before estimator.compute_gradient_estimate()\n\n")
         estimator_out, metrics = estimator.compute_gradient_estimate(
             worker_weights, rng, unroll_state, with_summary=with_metrics)
+        
+        # print("\n\n after estimator.compute_gradient_estimate()\n\n")
 
       unroll_states_out.append(estimator_out.unroll_state)
       losses.append(estimator_out.mean_loss)
@@ -575,15 +578,19 @@ class SingleMachineGradientLearner:
       loss: loss from the current iteration
       metrics: dictionary of metrics computed
     """
+    # print("in update()\n\n")
     key1, key2 = jax.random.split(key)
     worker_weights = self.gradient_learner.get_state_for_worker(
         state.gradient_learner_state)
+    
+    # print("\n\nbefore grad worker compute\n\n")
     worker_compute_out = gradient_worker_compute(
         worker_weights,
         self.gradient_estimators,
         state.gradient_estimator_states,
         key=key1,
         with_metrics=with_metrics)
+    # print("\n\nafter grad worker compute\n\n")
 
     next_gradient_estimator_states = worker_compute_out.unroll_states
 

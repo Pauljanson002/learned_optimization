@@ -480,7 +480,7 @@ class VectorizedLOptTruncatedStep(truncated_step.VectorizedTruncatedStep,
     self._task_name = task_name
 
     self.data_shape = jax.tree_util.tree_map(
-        lambda x: jax.ShapedArray(shape=x.shape, dtype=x.dtype),
+        lambda x: jax.core.ShapedArray(shape=x.shape, dtype=x.dtype),
         training.vec_get_batch(
             task_family, num_tasks, split="train", numpy=True))
 
