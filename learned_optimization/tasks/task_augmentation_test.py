@@ -39,7 +39,7 @@ def dummary_datasets():
       it(),
       it(),
       it(),
-      abstract_batch=jax.ShapedArray([32], dtype=jnp.int32))
+      abstract_batch=jax.core.ShapedArray([32], dtype=jnp.int32))
 
 
 class DummyTask(base.Task):

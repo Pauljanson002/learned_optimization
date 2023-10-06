@@ -49,10 +49,10 @@ class _TransformerTask(base.Task):
         d_model=self._cfg['d_model'],
         dropout_rate=self._cfg['dropout_rate'],
         vocab_size=vocab_size)
-    mask = (batch['obs'] != 0)
-    logits = mod(batch['obs'], mask=mask, is_training=True)
+    mask = (batch['image'] != 0)
+    logits = mod(batch['image'], mask=mask, is_training=True)
     loss = base.softmax_cross_entropy(
-        logits=logits, labels=jax.nn.one_hot(batch['target'], vocab_size))
+        logits=logits, labels=jax.nn.one_hot(batch['label'], vocab_size))
     return jnp.sum(loss * mask) / jnp.sum(mask)
 
   def init(self, key: chex.PRNGKey) -> base.Params:

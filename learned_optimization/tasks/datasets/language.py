@@ -94,8 +94,8 @@ def _make_datasets(tfds_datasetname: str,
 
   train, inner_valid, outer_valid, test = [make(split) for split in splits]
   abstract_batch = {
-      'obs': jax.ShapedArray((batch_size, sequence_length), jnp.int32),
-      'target': jax.ShapedArray((batch_size, sequence_length), jnp.int32),
+      'image': jax.core.ShapedArray((batch_size, sequence_length), jnp.int32),
+      'label': jax.core.ShapedArray((batch_size, sequence_length), jnp.int32),
   }
   return base.Datasets(
       train=train,
