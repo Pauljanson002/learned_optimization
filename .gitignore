@@ -1,0 +1,3 @@
+*.pyc
+.eggs/
+learned_optimization.egg-info/
