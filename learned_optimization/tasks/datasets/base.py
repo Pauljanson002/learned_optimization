@@ -31,6 +31,7 @@ from learned_optimization import profile
 import numpy as onp
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import warnings
 
 Batch = Any
 
@@ -330,6 +331,9 @@ def preload_tfds_image_classification_datasets(
       "convert_to_black_and_white": convert_to_black_and_white,
   }
 
+    
+
+
   def make_python_iter(split: str) -> Iterator[Batch]:
     # load the entire dataset into memory
     with profile.Profile(f"tfds.load({datasetname})"):
@@ -340,8 +344,17 @@ def preload_tfds_image_classification_datasets(
     def generator_fn():
 
       def iter_fn():
-        batches = data["image"].shape[0] // batch_size
-        idx = onp.arange(data["image"].shape[0])
+        
+        if batch_size > data["image"].shape[0]:
+          warnings.warn('Batch size is larger than dataset size. Possible'
+                  ' duplicate samples in batch/', Warning)
+          batches = 1
+          idx = onp.arange(batch_size) % data["image"].shape[0]
+        else:
+          batches = data["image"].shape[0] // batch_size
+          idx = onp.arange(data["image"].shape[0])
+
+
         while True:
           # every epoch shuffle indicies
           onp.random.shuffle(idx)
