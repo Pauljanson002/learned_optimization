@@ -14,4 +14,4 @@ tensorflow-probability
 tensorboard
 gin-config
 seqio
-oryx
+#oryx
