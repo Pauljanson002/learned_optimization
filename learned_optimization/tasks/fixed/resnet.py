@@ -27,6 +27,65 @@ from learned_optimization.tasks import resnet
 from learned_optimization.tasks.datasets import image
 
 
+class _ResnetTaskDataset(base.Task):
+  """Tranformer from a dictionary configuration."""
+
+  def __init__(self, datasets, cfg: Mapping[str, Any], name: str = '__Resnet'):
+    self.datasets = datasets
+    self._cfg = cfg
+    self._net = hk.transform_with_state(self._hk_forward)
+    self._name = name
+
+  @property
+  def name(self):
+    return self._name
+
+  def _hk_forward(self, batch):
+    args = [
+        'blocks_per_group', 'use_projection', 'channels_per_group',
+        'initial_conv_kernel_size', 'initial_conv_stride', 'max_pool',
+        'resnet_v2'
+    ]
+    num_classes = self.datasets.extra_info['num_classes']
+    mod = resnet.ResNet(
+        num_classes=num_classes, **{k: self._cfg[k] for k in args})
+    logits = mod(batch['image'], is_training=True)
+    loss = base.softmax_cross_entropy(
+        logits=logits, labels=jax.nn.one_hot(batch['label'], num_classes))
+    return jnp.mean(loss)
+
+  def init_with_state(self, key: chex.PRNGKey) -> base.Params:
+    batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
+                                   self.datasets.abstract_batch)
+    return self._net.init(key, batch)
+
+  def init(self, key: chex.PRNGKey) -> base.Params:
+    batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
+                                   self.datasets.abstract_batch)
+    params, state = self._net.init(key, batch)
+    print(state)
+    exit(0)
+    return params
+
+  def loss_with_state(self, params, state, key, data):
+    loss, state, _ = self.loss_with_state_and_aux(params, state, key, data)
+    return loss, state
+
+  
+
+  def loss(self, params, state, key, data):
+    loss, state, _ = self.loss_with_state_and_aux(params, state, key, data)
+    return loss
+
+  def loss_with_state_and_aux(self, params, state, key, data):
+    loss, state = self._net.apply(params, state, key, data)
+    return loss, state, {}
+
+  # def init(self, key: PRNGKey) -> Any:
+  #   batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
+  #                                  self.datasets.abstract_batch)
+  #   return self._mod.init(key, batch["image"])
+
 class _ResnetTask(base.Task):
   """Tranformer from a dictionary configuration."""
 

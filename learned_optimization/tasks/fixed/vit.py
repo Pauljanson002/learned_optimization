@@ -98,6 +98,39 @@ def tall16_config():
   return config
 
 
+def vit_p16_h128_m512_nh4_nl10_config():
+  """A config based on the ViT-S_16 config but narrower."""
+  config = ml_collections.ConfigDict()
+  config.model_name = "small16_config"
+  config.patches = ml_collections.ConfigDict({"size": (16, 16)})
+  config.hidden_size = 128
+  config.transformer = ml_collections.ConfigDict()
+  config.transformer.mlp_dim = 512
+  config.transformer.num_heads = 12
+  config.transformer.num_layers = 12
+  config.transformer.attention_dropout_rate = 0.0
+  config.transformer.dropout_rate = 0.0
+  config.classifier = "token"
+  config.representation_size = None
+  return config
+
+
+def deit_tiny_config():
+  """A config based on the ViT-S_16 config but narrower."""
+  config = ml_collections.ConfigDict()
+  config.model_name = "small16_config"
+  config.patches = ml_collections.ConfigDict({"size": (16, 16)})
+  config.hidden_size = 192
+  config.transformer = ml_collections.ConfigDict()
+  config.transformer.mlp_dim = 768
+  config.transformer.num_heads = 3
+  config.transformer.num_layers = 12
+  config.transformer.attention_dropout_rate = 0.0
+  config.transformer.dropout_rate = 0.0
+  config.classifier = "token"
+  config.representation_size = None
+  return config
+
 def _make(cfg_fn, dataset_fn):
 
   def task():
