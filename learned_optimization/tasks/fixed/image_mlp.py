@@ -64,6 +64,23 @@ class _MLPImageTask(base.Task):
     vec_loss = base.softmax_cross_entropy(logits=logits, labels=labels)
     return jnp.mean(vec_loss)
 
+  def loss_and_accuracy(self, params: Params, key: PRNGKey, data: Any) -> Tuple[jnp.ndarray, jnp.ndarray]:  # pytype: disable=signature-mismatch  # jax-ndarray
+    num_classes = self.datasets.extra_info["num_classes"]
+    logits = self._mod.apply(params, key, data["image"])
+    
+    # Calculate the loss as before
+    labels = jax.nn.one_hot(data["label"], num_classes)
+    vec_loss = base.softmax_cross_entropy(logits=logits, labels=labels)
+    loss = jnp.mean(vec_loss)
+    
+    # Calculate the accuracy
+    predictions = jnp.argmax(logits, axis=-1)
+    actual = data["label"]
+    correct_predictions = predictions == actual
+    accuracy = jnp.mean(correct_predictions.astype(jnp.float32))
+    
+    return loss, accuracy
+
   def normalizer(self, loss):
     num_classes = self.datasets.extra_info["num_classes"]
     maxval = 1.5 * onp.log(num_classes)
