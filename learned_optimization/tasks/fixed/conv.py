@@ -109,7 +109,7 @@ class _ConvTask(base.Task):
   def __init__(self, base_model_fn, datasets, with_state=False):
     super().__init__()
     self._mod = hk.transform_with_state(base_model_fn)
-    self._acc = hk.transform(_accuracy)
+    self._acc = hk.transform(_accuracy([32, 64, 64], jax.nn.relu, num_classes=10)) # TODO Should be changes dynamically depending on what's in base_model_fn (now only works for conv-c10)
     self.datasets = datasets
     self._with_state = with_state
 
