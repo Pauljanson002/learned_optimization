@@ -109,7 +109,7 @@ class _ConvTask(base.Task):
   def __init__(self, base_model_fn, datasets, with_state=False):
     super().__init__()
     self._mod = hk.transform_with_state(base_model_fn)
-    self._acc = hk.transfor(_accuracy)
+    self._acc = hk.transform(_accuracy)
     self.datasets = datasets
     self._with_state = with_state
 
