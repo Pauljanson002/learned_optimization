@@ -65,12 +65,51 @@ def _cross_entropy_pool_loss(
   return _fn
 
 
+  def _accuracy(
+    hidden_units: Sequence[int],
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    initializers: Optional[hk.initializers.Initializer] = None,
+    norm_fn: Callable[[jnp.ndarray], jnp.ndarray] = lambda x: x,
+    pool: str = "avg",
+    num_classes: int = 10):
+  """Haiku function for a conv net with pooling and cross entropy loss."""
+  if not initializers:
+    initializers = {}
+
+  def _fn(batch):
+    net = batch["image"]
+    strides = [2] + [1] * (len(hidden_units) - 1)
+    for hs, ks, stride in zip(hidden_units, [3] * len(hidden_units), strides):
+      net = hk.Conv2D(hs, ks, stride=stride)(net)
+      net = activation_fn(net)
+      net = norm_fn(net)
+
+    if pool == "avg":
+      net = jnp.mean(net, [1, 2])
+    elif pool == "max":
+      net = jnp.max(net, [1, 2])
+    else:
+      raise ValueError("pool type not supported")
+
+    # Calculate the accuracy
+    logits = hk.Linear(num_classes)(net)
+    predictions = jnp.argmax(logits, axis=-1)
+    actual = data["label"]
+    correct_predictions = predictions == actual
+    accuracy = jnp.mean(correct_predictions.astype(jnp.float32))
+
+    return accuracy
+    
+  return _fn
+
+
 class _ConvTask(base.Task):
   """Helper class to construct tasks with different configs."""
 
   def __init__(self, base_model_fn, datasets, with_state=False):
     super().__init__()
     self._mod = hk.transform_with_state(base_model_fn)
+    self._acc = hk.transfor(_accuracy)
     self.datasets = datasets
     self._with_state = with_state
 
@@ -86,6 +125,9 @@ class _ConvTask(base.Task):
   def loss(self, params, key, data):
     loss, _ = self.loss_with_state(params, None, key, data)
     return loss
+
+  def loss_and_accuracy(self, params, key, data):
+    return self.loss(params, key, data), self._acc(params, key, data)
 
   def loss_with_state(self, params, state, key, data):
     loss, state, _ = self.loss_with_state_and_aux(params, state, key, data)
