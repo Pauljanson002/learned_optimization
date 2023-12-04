@@ -94,7 +94,7 @@ def _accuracy(
     # Calculate the accuracy
     logits = hk.Linear(num_classes)(net)
     predictions = jnp.argmax(logits, axis=-1)
-    actual = data["label"]
+    actual = batch["label"]
     correct_predictions = predictions == actual
     accuracy = jnp.mean(correct_predictions.astype(jnp.float32))
 
