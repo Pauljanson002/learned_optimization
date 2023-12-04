@@ -127,7 +127,7 @@ class _ConvTask(base.Task):
     return loss
 
   def loss_and_accuracy(self, params, key, data):
-    return self.loss(params, key, data), self._acc(params, key, data)
+    return self.loss(params, key, data), self._acc.apply(params, key, data)
 
   def loss_with_state(self, params, state, key, data):
     loss, state, _ = self.loss_with_state_and_aux(params, state, key, data)
