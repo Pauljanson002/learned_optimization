@@ -65,7 +65,7 @@ def _cross_entropy_pool_loss(
   return _fn
 
 
-  def _accuracy(
+def _accuracy(
     hidden_units: Sequence[int],
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
     initializers: Optional[hk.initializers.Initializer] = None,
