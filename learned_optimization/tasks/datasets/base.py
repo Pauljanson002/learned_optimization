@@ -346,8 +346,8 @@ def preload_tfds_image_classification_datasets(
       def iter_fn():
         
         if batch_size > data["image"].shape[0]:
-          warnings.warn('Batch size is larger than dataset size. Possible'
-                  ' duplicate samples in batch/', Warning)
+          warnings.warn('For {} split {}, batch size ({}) is larger than dataset size ({}). Possible'
+                  ' duplicate samples in batch/'.format(datasetname,split,batch_size,data["image"].shape[0]), Warning)
           batches = 1
           idx = onp.arange(batch_size) % data["image"].shape[0]
         else:
@@ -366,8 +366,10 @@ def preload_tfds_image_classification_datasets(
 
             yield jax.tree_util.tree_map(
                 functools.partial(index_into, idxs), data)
-
-      return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches)
+      if split == 'test' or split[len('train['):len('train[')+1] != '0':
+        return prefetch_iterator.PrefetchIterator(iter_fn(), 1)
+      else:
+        return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches)
 
     return ThreadSafeIterator(LazyIterator(generator_fn))
 
@@ -384,10 +386,10 @@ def preload_tfds_image_classification_datasets(
 
   abstract_batch = {
       "image":
-          jax.ShapedArray(
+          jax.core.ShapedArray(
               (batch_size,) + image_size + output_channel, dtype=jnp.float32),
       "label":
-          jax.ShapedArray((batch_size,), dtype=jnp.int32)
+          jax.core.ShapedArray((batch_size,), dtype=jnp.int32)
   }
   return Datasets(
       *[make_python_iter(split) for split in splits],

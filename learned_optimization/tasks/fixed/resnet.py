@@ -63,8 +63,6 @@ class _ResnetTaskDataset(base.Task):
     batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
                                    self.datasets.abstract_batch)
     params, state = self._net.init(key, batch)
-    print(state)
-    exit(0)
     return params
 
   def loss_with_state(self, params, state, key, data):
