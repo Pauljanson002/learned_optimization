@@ -255,6 +255,15 @@ def tfds_image_classification_datasets(
     ds = ds.prefetch(prefetch_batches)
     return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
 
+  def make_iter_test(split: str) -> Iterator[Batch]:
+    ds = tfds.load(datasetname, split=split)
+    ds = ds.repeat(-1)
+    ds = ds.map(functools.partial(_image_map_fn, cfg))#,num_parallel_calls=24)
+    ds = ds.shuffle(shuffle_buffer_size)
+    ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.prefetch(1)
+    return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
+
   if datasetname == 'imagenet_resized':
     from tensorflow_datasets.datasets.imagenet_resized.imagenet_resized_dataset_builder import ImagenetResizedConfig, Builder
     irc = ImagenetResizedConfig(size=image_size[0],name='imagenet_resized')
@@ -280,7 +289,7 @@ def tfds_image_classification_datasets(
           jax.core.ShapedArray((batch_size,), dtype=jnp.int32)
   }
   return Datasets(
-      *[make_iter(split) for split in splits],
+      *[make_iter(split) if i == 0 else make_iter_test(split) for i,split in enumerate(splits)],
       extra_info={"num_classes": num_classes},
       abstract_batch=abstract_batch)
 
