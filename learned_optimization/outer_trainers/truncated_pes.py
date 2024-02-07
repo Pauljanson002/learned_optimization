@@ -218,6 +218,8 @@ class TruncatedPES(gradient_learner.GradientEstimator):
     p_yses = []
     n_yses = []
     metrics = []
+    # max_list = []
+    # min_list = []
 
     # print("\nBefore maybe_stacked_es_unroll() loop\n")
 
@@ -252,10 +254,25 @@ class TruncatedPES(gradient_learner.GradientEstimator):
           worker_weights.outer_state,
           with_summary=with_summary,
           sample_rng_key=next(rng))
+      
+      # max_ = jax.tree_map(lambda x,y : max([jnp.max(x),jnp.max(y)]),
+      #              n_state.inner_opt_state.log,
+      #              p_state.inner_opt_state.log)
+
+      # min_ = jax.tree_map(lambda x,y : min([jnp.min(x),jnp.min(y)]),
+      #              n_state.inner_opt_state.log,
+      #              p_state.inner_opt_state.log)
+      
+      # max_list.append(max_)
+      # min_list.append(min_)
 
       metrics.append(m)
       p_yses.append(p_ys)
       n_yses.append(n_ys)
+
+    # import pdb
+    # pdb.set_trace()
+
 
     # print("\nBefore maybe_stacked_es_unroll() loop\n")
 
@@ -289,6 +306,11 @@ class TruncatedPES(gradient_learner.GradientEstimator):
       metrics["sample||delta_loss_sample"] = summary.sample_value(
           key, jnp.abs(delta_loss))
       metrics["mean||delta_loss_mean"] = jnp.abs(delta_loss)
+      # max_ = functools.reduce(lambda x, y: jax.tree_map(max, x, y), max_list)
+      # min_ = functools.reduce(lambda x, y: jax.tree_map(max, x, y), min_list)
+      # metrics.update({'sample||'+k+'_max':v for k,v in flatten_dict(max_).items()})
+      # metrics.update({'sample||'+k+'_min':v for k,v in flatten_dict(min_).items()})
+
       if hasattr(p_state, "inner_step"):
         metrics["sample||inner_step"] = p_state.inner_step[0]
         metrics["sample||end_inner_step"] = p_state.inner_step[0]
