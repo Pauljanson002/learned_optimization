@@ -214,15 +214,20 @@ class TruncatedPES(gradient_learner.GradientEstimator):
 
     vec_pos, vec_p_theta, vec_n_theta = common.vector_sample_perturbations(
         theta, next(rng), self.std, self.truncated_step.num_tasks)
+    # import pprint
+    # print('p_state')
+    # pprint.pprint(jax.tree_map(lambda x:x.shape,state.__dict__))
+    # print('vec_p_theta')
+    # pprint.pprint(jax.tree_map(lambda x:x.shape,vec_p_theta))
+    # print('theta')
+    # pprint.pprint(jax.tree_map(lambda x:x.shape,theta))
 
     p_yses = []
     n_yses = []
     metrics = []
-    # max_list = []
-    # min_list = []
 
-    # print("\nBefore maybe_stacked_es_unroll() loop\n")
-
+    # print('self.trunc_length // self.steps_per_jit',self.trunc_length // self.steps_per_jit)
+    # exit(0)
     # TODO(lmetz) consider switching this to be a jax.lax.scan when inside jit.
     for i in range(self.trunc_length // self.steps_per_jit):
       if datas_list is None:
@@ -241,6 +246,8 @@ class TruncatedPES(gradient_learner.GradientEstimator):
 
       key = next(rng)
 
+      # print(i, 'datas in PES',jax.tree_map(lambda x:x.shape, datas))
+
       p_state, n_state, p_ys, n_ys, m = common.maybe_stacked_es_unroll(
           self.truncated_step,
           self.steps_per_jit,
@@ -255,24 +262,9 @@ class TruncatedPES(gradient_learner.GradientEstimator):
           with_summary=with_summary,
           sample_rng_key=next(rng))
       
-      # max_ = jax.tree_map(lambda x,y : max([jnp.max(x),jnp.max(y)]),
-      #              n_state.inner_opt_state.log,
-      #              p_state.inner_opt_state.log)
-
-      # min_ = jax.tree_map(lambda x,y : min([jnp.min(x),jnp.min(y)]),
-      #              n_state.inner_opt_state.log,
-      #              p_state.inner_opt_state.log)
-      
-      # max_list.append(max_)
-      # min_list.append(min_)
-
       metrics.append(m)
       p_yses.append(p_ys)
       n_yses.append(n_ys)
-
-    # import pdb
-    # pdb.set_trace()
-
 
     # print("\nBefore maybe_stacked_es_unroll() loop\n")
 

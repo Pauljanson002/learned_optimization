@@ -64,7 +64,7 @@ def vector_sample_perturbations(theta: T, key: chex.PRNGKey, std: float,
 @functools.partial(jax.jit, donate_argnums=(0,), static_argnames=("axis",))
 def _split_tree(tree, axis=0):
   """Split the provided tree in half along `axis`."""
-  assert axis in [0, 1]
+  assert axis in [0, 1],'_split_tree only supports axis 0 or 1'
   if axis == 0:
     num_tasks = tree_utils.first_dim(tree) // 2
     a = jax.tree_util.tree_map(lambda x: x[0:num_tasks], tree)
@@ -81,6 +81,17 @@ def _split_tree(tree, axis=0):
 def _stack(a, b, axis=0):
   return jax.tree_util.tree_map(lambda x, y: jnp.concatenate([x, y], axis=axis),
                                 a, b)
+
+
+
+import flax
+@flax.struct.dataclass
+class TruncatedUnrollOut:
+  loss: jnp.ndarray
+  is_done: jnp.ndarray
+  task_param: Any
+  iteration: jnp.ndarray
+  mask: jnp.ndarray
 
 
 @functools.partial(
@@ -110,6 +121,7 @@ def truncated_unroll(
         f"got a mismatch in data size. Expected to have data of size: {unroll_length} "
         f"but got data of size {tree_utils.first_dim(datas)}")
 
+
   def step_fn(state, xs):
     key, data = xs
     if override_num_steps is not None:
@@ -132,9 +144,28 @@ def truncated_unroll(
   key_and_data = jax.random.split(key, unroll_length), datas
   if wrap_step_fn is not None:
     step_fn = wrap_step_fn(step_fn)
-  # print("before jax.lax.scan(step_fn)")
+
+
+  #looped implementation for debugging:  
+  # ally = []
+  # for i in range(unroll_length):
+  #   state, ys = step_fn(state, jax.tree_map(lambda s:s[i], key_and_data))
+  #   ally.append(ys)
+
+  # ys = ally
+
+  # ys = TruncatedUnrollOut(
+  #         loss=jnp.stack([x.loss for x in ally]),
+  #         is_done=jnp.stack([x.is_done for x in ally]),
+  #         task_param=jnp.stack([x.task_param for x in ally]),
+  #         iteration=jnp.stack([x.iteration for x in ally]),
+  #         mask=jnp.stack([x.mask for x in ally]),
+  # )
+
+  # print("override_num_steps",override_num_steps)
+  # print('len(key_and_data)',jax.tree_map(lambda x: x.shape, key_and_data))
   state, ys = jax.lax.scan(step_fn, state, key_and_data)
-  # print("after jax.lax.scan(step_fn)")
+
   return state, ys
 
 

@@ -198,6 +198,12 @@ def _image_map_fn(cfg: Mapping[str, Any], batch: Batch) -> Batch:
     batch["image"] = tf.reduce_mean(batch["image"], axis=3, keepdims=True)
 
   batch["label"] = tf.cast(batch["label"], tf.int32)
+  
+  # return hk.data_structures.to_immutable_dict({
+  #     "image": jax.device_put(batch["image"],device=jax.devices('gpu')[0]),
+  #     "label": jax.device_put(batch["label"],device=jax.devices('gpu')[0])
+  # })
+  
   return hk.data_structures.to_immutable_dict({
       "image": batch["image"],
       "label": batch["label"]
@@ -253,6 +259,7 @@ def tfds_image_classification_datasets(
     ds = ds.shuffle(shuffle_buffer_size)
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.prefetch(prefetch_batches)
+    ds = jax.device_put(ds,device=jax.devices('gpu')[0])
     return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
 
   def make_iter_test(split: str) -> Iterator[Batch]:
@@ -290,7 +297,7 @@ def tfds_image_classification_datasets(
   }
   return Datasets(
       *[make_iter(split) if i == 0 else make_iter_test(split) for i,split in enumerate(splits)],
-      extra_info={"num_classes": num_classes},
+      extra_info={"num_classes": num_classes,'name':datasetname},
       abstract_batch=abstract_batch)
 
 
@@ -310,6 +317,9 @@ def preload_tfds_image_classification_datasets(
     normalize_mean: Optional[Tuple[int, int, int]] = None,
     normalize_std: Optional[Tuple[int, int, int]] = None,
     convert_to_black_and_white: Optional[bool] = False,
+    batch_shape=None,
+    label_sharding=None,
+    image_sharding=None
 ) -> Datasets:
   """Load an image dataset with tfds by first loading into host ram.
 
@@ -348,6 +358,7 @@ def preload_tfds_image_classification_datasets(
     with profile.Profile(f"tfds.load({datasetname})"):
       dataset = _cached_tfds_load(datasetname, split=split, batch_size=-1)
     data = tfds.as_numpy(_image_map_fn(cfg, dataset))
+    print(jax.tree_map(lambda x:x.shape if type(x) != int else x, data))
 
     # use a python iterator as this is faster than TFDS.
     def generator_fn():
@@ -363,7 +374,12 @@ def preload_tfds_image_classification_datasets(
           batches = data["image"].shape[0] // batch_size
           idx = onp.arange(data["image"].shape[0])
 
+        
+        # batches = data["image"].shape[0] // batch_size
+        # idx = onp.arange(data["image"].shape[0])
 
+
+        # ds = jax.device_put(ds,device=jax.devices('gpu')[0])
         while True:
           # every epoch shuffle indicies
           onp.random.shuffle(idx)
@@ -371,13 +387,19 @@ def preload_tfds_image_classification_datasets(
             idxs = idx[bi * batch_size:(bi + 1) * batch_size]
 
             def index_into(idxs, x):
-              return x[idxs]
+              # return x[idxs]
+              #TODO fix hacky label scheck
+              return jnp.reshape(jax.device_put(x[idxs],image_sharding if len(x.shape) > 1 else label_sharding),
+                                batch_shape + x.shape[1:])
 
             yield jax.tree_util.tree_map(
                 functools.partial(index_into, idxs), data)
+            
+
       if split == 'test' or split[len('train['):len('train[')+1] != '0':
         return prefetch_iterator.PrefetchIterator(iter_fn(), 1)
       else:
+        print("prefetching train set with", prefetch_batches)
         return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches)
 
     return ThreadSafeIterator(LazyIterator(generator_fn))
@@ -402,7 +424,7 @@ def preload_tfds_image_classification_datasets(
   }
   return Datasets(
       *[make_python_iter(split) for split in splits],
-      extra_info={"num_classes": num_classes},
+      extra_info={"num_classes": num_classes, 'name':datasetname},
       abstract_batch=abstract_batch)
 
 
@@ -533,5 +555,5 @@ def tfrecord_image_classification_datasets(
 
   return Datasets(
       *[make_python_iter(split) for split in splits],
-      extra_info={"num_classes": num_classes_map[datasetname]},
+      extra_info={"num_classes": num_classes_map[datasetname],'name':datasetname},
       abstract_batch=abstract_batch)

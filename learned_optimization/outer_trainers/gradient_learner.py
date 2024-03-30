@@ -390,7 +390,7 @@ def gradient_worker_compute(
   unroll_states_out = []
   losses = []
   event_info = []
-
+  
   assert len(gradient_estimators) == len(unroll_states)
 
   for si, (estimator,
@@ -408,7 +408,6 @@ def gradient_worker_compute(
         # print("\n\n before estimator.compute_gradient_estimate()\n\n")
         estimator_out, metrics = estimator.compute_gradient_estimate(
             worker_weights, rng, unroll_state, with_summary=with_metrics)
-        
         # print("\n\n after estimator.compute_gradient_estimate()\n\n")
 
       unroll_states_out.append(estimator_out.unroll_state)
@@ -585,6 +584,8 @@ class SingleMachineGradientLearner:
         state.gradient_learner_state)
     
     # print("\n\nbefore grad worker compute\n\n")
+
+    #this  is where we perform the full unroll
     worker_compute_out = gradient_worker_compute(
         worker_weights,
         self.gradient_estimators,
