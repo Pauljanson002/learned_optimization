@@ -310,10 +310,10 @@ def _cached_tfds_load(datasetname, split, batch_size):
 def preload_tfds_image_classification_datasets(
     datasetname: str,
     splits: Tuple[str, str, str, str],
-    batch_size: int,
+    batch_size: Tuple[int, int, int, int],
     image_size: Tuple[int, int],
     stack_channels: int = 1,
-    prefetch_batches: int = 1000,
+    prefetch_batches: Tuple[int, int, int, int] = (20,1,1,1),
     normalize_mean: Optional[Tuple[int, int, int]] = None,
     normalize_std: Optional[Tuple[int, int, int]] = None,
     convert_to_black_and_white: Optional[bool] = False,
@@ -338,6 +338,11 @@ def preload_tfds_image_classification_datasets(
   Returns:
     A Datasets object containing data iterators.
   """
+  assert len(splits) == len(prefetch_batches), 'number of splits and prefetch_batches should be the same'
+  assert len(splits) == len(batch_size), 'number of splits and batch_size should be the same'
+  prefetch_batches = {splits[i]:prefetch_batches[i] for i in range(len(splits))}
+  batch_size = {splits[i]:batch_size[i] for i in range(len(splits))}
+
   cfg = {
       "batch_size": batch_size,
       "image_size": image_size,
@@ -349,9 +354,6 @@ def preload_tfds_image_classification_datasets(
       "normalize_std": normalize_std,
       "convert_to_black_and_white": convert_to_black_and_white,
   }
-
-    
-
 
   def make_python_iter(split: str) -> Iterator[Batch]:
     # load the entire dataset into memory
@@ -365,43 +367,37 @@ def preload_tfds_image_classification_datasets(
 
       def iter_fn():
         
-        if batch_size > data["image"].shape[0]:
+        if batch_size[split] > data["image"].shape[0]:
           warnings.warn('For {} split {}, batch size ({}) is larger than dataset size ({}). Possible'
-                  ' duplicate samples in batch/'.format(datasetname,split,batch_size,data["image"].shape[0]), Warning)
+                  ' duplicate samples in batch/'.format(datasetname,split,batch_size[split],data["image"].shape[0]), Warning)
           batches = 1
-          idx = onp.arange(batch_size) % data["image"].shape[0]
+          idx = onp.arange(batch_size[split]) % data["image"].shape[0]
         else:
-          batches = data["image"].shape[0] // batch_size
+          batches = data["image"].shape[0] // batch_size[split]
           idx = onp.arange(data["image"].shape[0])
 
-        
-        # batches = data["image"].shape[0] // batch_size
-        # idx = onp.arange(data["image"].shape[0])
-
-
-        # ds = jax.device_put(ds,device=jax.devices('gpu')[0])
         while True:
           # every epoch shuffle indicies
           onp.random.shuffle(idx)
           for bi in range(0, batches):
-            idxs = idx[bi * batch_size:(bi + 1) * batch_size]
+            idxs = idx[bi * batch_size[split]:(bi + 1) * batch_size[split]]
 
             def index_into(idxs, x):
               # return x[idxs]
-              #TODO fix hacky label scheck
-              return jnp.reshape(jax.device_put(x[idxs],image_sharding if len(x.shape) > 1 else label_sharding),
+              #TODO fix hacky label check
+              if len(batch_shape) > 1:
+                return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
                                 batch_shape + x.shape[1:])
+              else:
+                return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
+                                (batch_size[split],) + x.shape[1:])
+
 
             yield jax.tree_util.tree_map(
                 functools.partial(index_into, idxs), data)
-            
-
-      if split == 'test' or split[len('train['):len('train[')+1] != '0':
-        return prefetch_iterator.PrefetchIterator(iter_fn(), 1)
-      else:
-        print("prefetching train set with", prefetch_batches)
-        return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches)
-
+      
+      return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches[split])
+      
     return ThreadSafeIterator(LazyIterator(generator_fn))
 
   builder = tfds.builder(datasetname)
@@ -418,9 +414,9 @@ def preload_tfds_image_classification_datasets(
   abstract_batch = {
       "image":
           jax.core.ShapedArray(
-              (batch_size,) + image_size + output_channel, dtype=jnp.float32),
+              (batch_size[splits[0]],) + image_size + output_channel, dtype=jnp.float32),
       "label":
-          jax.core.ShapedArray((batch_size,), dtype=jnp.int32)
+          jax.core.ShapedArray((batch_size[splits[0]],), dtype=jnp.int32)
   }
   return Datasets(
       *[make_python_iter(split) for split in splits],
