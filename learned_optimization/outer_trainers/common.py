@@ -138,10 +138,12 @@ def truncated_unroll(
         outer_state=outer_state,
         theta_is_vector=theta_is_vector,
         **extra_kwargs)
-    # print("inside scan after unroll_step()")
+    # print("inside scan after unroll_step() exiting....")
+    # exit(0)
     return state, outs
   
   key_and_data = jax.random.split(key, unroll_length), datas
+
   if wrap_step_fn is not None:
     step_fn = wrap_step_fn(step_fn)
 
@@ -151,6 +153,7 @@ def truncated_unroll(
   # for i in range(unroll_length):
   #   state, ys = step_fn(state, jax.tree_map(lambda s:s[i], key_and_data))
   #   ally.append(ys)
+
 
   # ys = ally
 
@@ -162,8 +165,6 @@ def truncated_unroll(
   #         mask=jnp.stack([x.mask for x in ally]),
   # )
 
-  # print("override_num_steps",override_num_steps)
-  # print('len(key_and_data)',jax.tree_map(lambda x: x.shape, key_and_data))
   state, ys = jax.lax.scan(step_fn, state, key_and_data)
 
   return state, ys
@@ -214,11 +215,24 @@ def maybe_stacked_es_unroll(
     p_state, n_state = _split_tree(pn_state)
     p_ys, n_ys = _split_tree(pn_ys, axis=1)
   else:
+
     (p_state, p_ys), m = truncated_unroll(  # pylint: disable=unbalanced-tuple-unpacking,unexpected-keyword-arg,redundant-keyword-arg
         *(static_args +
           [vec_p_theta, key, p_state, datas, outer_state, override_num_steps]),
         with_summary=with_summary,
-        sample_rng_key=sample_rng_key)
+        sample_rng_key=sample_rng_key
+        )
+    
+    # print('p_state',jax.tree_map(lambda x: x.shape, p_state))
+    
+    
+    # print('p_ys',jax.tree_map(lambda x: x.device(), p_ys))
+    # print('p_ys',jax.tree_map(lambda x: x.shape, p_ys))
+    
+    # print('m',jax.tree_map(lambda x: x.shape, m))
+
+    # print('Pos unroll complete exiting...')
+    # exit(0)
     (n_state, n_ys), _ = truncated_unroll(  # pylint: disable=unbalanced-tuple-unpacking,unexpected-keyword-arg,redundant-keyword-arg
         *(static_args +
           [vec_n_theta, key, n_state, datas, outer_state, override_num_steps]),
