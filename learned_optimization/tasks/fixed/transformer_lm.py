@@ -27,12 +27,12 @@ from learned_optimization.tasks import transformer
 from learned_optimization.tasks.datasets import language
 
 
+
 class _TransformerTask(base.Task):
   """Tranformer from a dictionary configuration."""
 
-  def __init__(self, cfg: Mapping[str, Any], name: str = '__TransformerTask'):
-    self.datasets = language.lm1b_32k_datasets(cfg['batch_size'],
-                                               cfg['sequence_length'])
+  def __init__(self, datasets, cfg: Mapping[str, Any], name: str = '__TransformerTask'):
+    self.datasets = datasets
     self._cfg = cfg
     self._net = hk.transform(self._hk_forward)
     self._name = name
@@ -59,9 +59,11 @@ class _TransformerTask(base.Task):
     batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
                                    self.datasets.abstract_batch)
     return self._net.init(key, batch)
+  
 
   def loss(self, params, key, data):
     return self._net.apply(params, key, data)
+  
 
 
 
