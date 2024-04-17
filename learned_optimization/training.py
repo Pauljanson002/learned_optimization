@@ -58,7 +58,7 @@ def timing_decorator(func):
     return wrapper
 
 
-@timing_decorator
+# @timing_decorator
 def get_batches(task_family: tasks_base.TaskFamily,
                 batch_shape: Sequence[int],
                 split: str,
@@ -71,6 +71,10 @@ def get_batches(task_family: tasks_base.TaskFamily,
   return temp
   return jax.tree_map(lambda x: jnp.reshape(x, batch_shape + (x.shape[0]//onp.prod(batch_shape),) + x.shape[1:],'C'),
                       temp)
+
+def vec_get_batch(task_family, n_tasks, split, numpy=False):
+   return next(task_family.datasets.split(split))
+
 
 """
 # @timing_decorator
