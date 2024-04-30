@@ -297,7 +297,7 @@ class _MLPImageTask(base.Task):
 
     def _forward(inp):
       inp = jnp.reshape(inp, [inp.shape[0], -1])
-      return MLPOutput( #hk.nets.MLP(
+      return hk.nets.MLP(
           sizes, activation=act_fn)(
               inp, dropout_rate=dropout_rate, rng=hk.next_rng_key())
 

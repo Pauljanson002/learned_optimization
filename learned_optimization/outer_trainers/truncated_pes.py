@@ -262,6 +262,9 @@ class TruncatedPES(gradient_learner.GradientEstimator):
           with_summary=with_summary,
           sample_rng_key=next(rng))
       
+      # print("PES iter 1 completed, exiting...")
+      # exit(0)
+      
       metrics.append(m)
       p_yses.append(p_ys)
       n_yses.append(n_ys)

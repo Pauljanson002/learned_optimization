@@ -23,6 +23,7 @@ import flax
 import gin
 import jax
 import jax.numpy as jnp
+import time
 from learned_optimization import summary
 from learned_optimization import training
 from learned_optimization import tree_utils
@@ -478,6 +479,7 @@ class VectorizedLOptTruncatedStep(truncated_step.VectorizedTruncatedStep,
     self.outer_data_split = outer_data_split
     self.meta_loss_with_aux_key = meta_loss_with_aux_key
     self._task_name = task_name
+    self.timings = []
 
     self.data_shape = jax.tree_util.tree_map(
         lambda x: jax.core.ShapedArray(shape=x.shape, dtype=x.dtype),
@@ -524,7 +526,21 @@ class VectorizedLOptTruncatedStep(truncated_step.VectorizedTruncatedStep,
       unroll_state = unroll_state.replace(inner_step=inner_step)
 
     return unroll_state
+  
 
+  def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        diff = end_time - start_time
+        # print(f"{func.__name__} took {diff} seconds to complete.")
+        args[0].timings.append(diff)
+        return result
+
+    return wrapper
+
+  @timing_decorator
   def get_batch(self, steps: Optional[int] = None):
     if steps is not None:
       data_shape = (steps, self.num_tasks)
