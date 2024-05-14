@@ -67,6 +67,7 @@ class VisionTransformerTask(base.Task):
                                  batch["image"],
                                  train=True)
 
+  @functools.partial(jax.jit, static_argnums=(0,))
   def loss(self, params: Any, key: chex.PRNGKey, data: Any):
     logits = self.flax_module.apply(
         params, data["image"], train=True, rngs={"dropout": key})
@@ -74,6 +75,8 @@ class VisionTransformerTask(base.Task):
     loss_vec = base.softmax_cross_entropy(logits=logits, labels=labels_onehot)
     return jnp.mean(loss_vec)
   
+
+  @functools.partial(jax.jit, static_argnums=(0,))
   def loss_and_accuracy(self, params: Params, key: PRNGKey, data: Any) -> Tuple[jnp.ndarray, jnp.ndarray]:  # pytype: disable=signature-mismatch  # jax-ndarray
     num_classes = self.datasets.extra_info["num_classes"]
 

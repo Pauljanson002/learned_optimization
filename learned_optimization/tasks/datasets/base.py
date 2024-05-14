@@ -379,6 +379,10 @@ def preload_tfds_image_classification_datasets(
         while True:
           # every epoch shuffle indicies
           onp.random.shuffle(idx)
+
+          # if split != 'validation':
+          #   print('\nshuffled idx: ', idx[:10] ,split)
+            
           for bi in range(0, batches):
             idxs = idx[bi * batch_size[split]:(bi + 1) * batch_size[split]]
 
@@ -387,10 +391,10 @@ def preload_tfds_image_classification_datasets(
               #TODO fix hacky label check
               if len(batch_shape) > 1:
                 return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
-                                batch_shape + x.shape[1:])
+                                   batch_shape + x.shape[1:] )
               else:
                 return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
-                                (batch_size[split],) + x.shape[1:])
+                                   (batch_size[split],) + x.shape[1:] )
 
 
             yield jax.tree_util.tree_map(
