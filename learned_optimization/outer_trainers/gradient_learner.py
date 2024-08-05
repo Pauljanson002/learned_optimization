@@ -198,11 +198,16 @@ class GradientLearner:
 
       # To load a checkpoint, the state of the target object must be specified,
       # so we pass fake values here.
-      fake_param_checkpoint = ParameterCheckpoint(
-          params=theta_init, gen_id="", step=0)
-      real_param_checkpoint = checkpoints.load_state(self._init_theta_from_path,
-                                                     fake_param_checkpoint)
-      theta_init = real_param_checkpoint.params
+      # fake_param_checkpoint = ParameterCheckpoint(
+      #     params=theta_init, gen_id="", step=0)
+      # print("fake_param_checkpoint",fake_param_checkpoint)
+      # real_param_checkpoint = checkpoints.load_state(self._init_theta_from_path,
+      #                                                fake_param_checkpoint)
+      # theta_init = real_param_checkpoint.params
+
+      import pickle
+      with open(self._init_theta_from_path, "rb") as f:
+        theta_init = pickle.load(f)
 
     theta_opt_state = self._theta_opt.init(
         theta_init, model_state, num_steps=self._num_steps)
@@ -251,6 +256,7 @@ class GradientLearner:
 
     with profile.Profile("stack_grad"):
       grads_stack = tree_utils.tree_zip_onp([t.theta_grads for t in grads_list])
+      
     with profile.Profile("mean_grad"):
       grads = _tree_mean_onp(grads_stack)
 
@@ -410,6 +416,7 @@ def gradient_worker_compute(
             worker_weights, rng, unroll_state, with_summary=with_metrics)
         # print("\n\n after estimator.compute_gradient_estimate()\n\n")
 
+
       unroll_states_out.append(estimator_out.unroll_state)
       losses.append(estimator_out.mean_loss)
       with profile.Profile("tree_add"):
@@ -466,6 +473,9 @@ def gradient_worker_compute(
         metrics[f"sample||{cfg_name}/time"] = time.time() - stime
 
       metrics_list.append(metrics)
+
+
+  # where communication should happen
 
   with profile.Profile("mean_grads"):
     grads_accum = tree_utils.tree_div(grads_accum, len(gradient_estimators))
@@ -595,7 +605,6 @@ class SingleMachineGradientLearner:
     # print("\n\nafter grad worker compute\n\n")
 
     next_gradient_estimator_states = worker_compute_out.unroll_states
-
     next_theta_state, metrics = self.gradient_learner.update(
         state.gradient_learner_state, [worker_compute_out.to_put],
         key=key2,

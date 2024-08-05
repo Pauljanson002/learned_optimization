@@ -361,7 +361,7 @@ def _truncated_unroll_one_step(
 
   return output_state, out
 
-
+# BEN_COMMENTED_JIT
 @functools.partial(
     jax.jit,
     static_argnames=("task_family", "learned_opt", "trunc_sched",
@@ -393,7 +393,7 @@ def truncated_unroll_one_step(
       meta_loss_with_aux_key=meta_loss_with_aux_key,
       override_num_steps=override_num_steps)
 
-
+# BEN_COMMENTED_JIT
 @functools.partial(
     jax.jit,
     static_argnames=("task_family", "learned_opt", "trunc_sched",

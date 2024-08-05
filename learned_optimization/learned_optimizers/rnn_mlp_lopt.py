@@ -165,6 +165,7 @@ class RNNMLPLOptState:
   train_loss_accum: Any
   valid_loss_accum: _LossNormalizerState
   dynamic_clip: _DynamicGradientClipperState
+  debug: Any
 
 
 @gin.configurable
@@ -227,6 +228,8 @@ class RNNMLPLOpt(lopt_base.LearnedOptimizer):
     self.lstm_fn = lambda: hk.LSTM(lstm_hidden_size, name="rnn")
     self.rnn_network = hk.without_apply_rng(
         hk.transform(lambda x, state: self.lstm_fn()(x, state)))  # pylint: disable=unnecessary-lambda
+
+    self.input_store = []
 
   def init(self, key) -> lopt_base.MetaParams:
     """Initialization of the meta-parameters."""
@@ -309,7 +312,8 @@ class RNNMLPLOpt(lopt_base.LearnedOptimizer):
             from_lstm=self.theta["initial_from_lstm"],
             train_loss_accum=valid_loss_normalizer.init(),
             valid_loss_accum=train_loss_normalizer.init(),
-            dynamic_clip=dynamic_gradient_clip.initial_state())
+            dynamic_clip=dynamic_gradient_clip.initial_state(),
+            debug={'lstm_out': None,})
 
       def lstm_features_for_tensor(
           self, ms: jnp.ndarray, rms: jnp.ndarray, g: jnp.ndarray,
@@ -541,6 +545,37 @@ class RNNMLPLOpt(lopt_base.LearnedOptimizer):
             parent.rnn_to_rnn_network.apply(theta["rnn_to_in_params"],
                                             lstm_out),
             axis=0)
+        
+
+        parent.input_store.append(lstm_out)
+
+        # new_from_lstm = jax.tree_map(lambda x: jnp.ones(x.shape), new_from_lstm)
+        # lstm_out = jax.tree_map(lambda x: jnp.ones(x.shape), lstm_out)
+
+
+        # print("rnn_inputs"rnn_inputs)
+
+        # s = jax.tree_map(lambda x: x.sum(), lstm_out)
+
+        # print(s)
+
+        # def contains_nan(x):
+        #    return jnp.any(jnp.isnan(x))
+
+        # def pytree_contains_nan(pytree):
+        #   nan_tree = jax.tree_map(contains_nan, pytree)
+        #   return jax.tree_util.tree_reduce(jnp.logical_or, nan_tree)
+        
+        # assert pytree_contains_nan(s) == False, "nans in tree"
+        # Flatten the tree into a list of leaves
+        # leaves = jax.tree_util.tree_leaves(s)
+
+        # # Sum the flattened leaves
+        # sum_of_elements = jnp.sum(jnp.concatenate([jnp.ravel(leaf) for leaf in leaves]))
+
+        # if float(sum_of_elements) is 'nan':
+        # print(sum_of_elements)
+
 
         # Compute values passed from the lstm into the FF network.
         ff_inputs = parent.rnn_to_mlp_network.apply(theta["rnn_to_ff_params"],
@@ -605,8 +640,9 @@ class RNNMLPLOpt(lopt_base.LearnedOptimizer):
             from_lstm=new_from_lstm,
             train_loss_accum=next_train_loss_accum,
             valid_loss_accum=opt_state.valid_loss_accum,
-            dynamic_clip=next_dynamic_clip)
-        return tree_utils.match_type(next_opt_state, opt_state)
+            dynamic_clip=next_dynamic_clip,
+            debug={'lstm_out':None,}) # 'rnn_inputs':rnn_inputs, 
+        return next_opt_state #tree_utils.match_type(next_opt_state, opt_state)
 
     return _Opt(theta)
 

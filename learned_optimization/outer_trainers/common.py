@@ -43,7 +43,7 @@ def sample_perturbations(variables: T, rng: chex.PRNGKey, std: float) -> T:
   return jax.tree_util.tree_unflatten(tree_def, perturbs)
 
 
-@functools.partial(jax.jit, static_argnums=(3,))
+# @functools.partial(jax.jit, static_argnums=(3,))
 def vector_sample_perturbations(theta: T, key: chex.PRNGKey, std: float,
                                 num_samples: int) -> Tuple[T, T, T]:
   """Sample multiple antithetic ES perturbations."""
@@ -93,7 +93,7 @@ class TruncatedUnrollOut:
   iteration: jnp.ndarray
   mask: jnp.ndarray
 
-
+# BEN_COMMENTED_JIT
 @functools.partial(
     jax.jit,
     static_argnames=("truncated_step", "with_summary", "unroll_length",
@@ -147,7 +147,7 @@ def truncated_unroll(
   if wrap_step_fn is not None:
     step_fn = wrap_step_fn(step_fn)
 
-
+  # BEN_COMMENTED_JIT
   #looped implementation for debugging:  
   # ally = []
   # for i in range(unroll_length):
@@ -220,7 +220,7 @@ def maybe_stacked_es_unroll(
         *(static_args +
           [vec_p_theta, key, p_state, datas, outer_state, override_num_steps]),
         with_summary=with_summary,
-        sample_rng_key=sample_rng_key
+        sample_rng_key=sample_rng_key# BEN_COMMENTED_JIT
         )
     
     # print('p_state',jax.tree_map(lambda x: x.shape, p_state))

@@ -32,7 +32,7 @@ from learned_optimization import tree_utils
 from learned_optimization.outer_trainers import common
 from learned_optimization.outer_trainers import gradient_learner
 from learned_optimization.outer_trainers import truncated_step as truncated_step_mod
-
+import pprint
 PRNGKey = jnp.ndarray
 MetaParams = Any
 TruncatedUnrollState = Any
@@ -80,6 +80,7 @@ def compute_pes_grad(
   p_ys = jax.tree_util.tree_map(flat_first, tree_utils.tree_zip_jnp(p_yses))
   n_ys = jax.tree_util.tree_map(flat_first, tree_utils.tree_zip_jnp(n_yses))
 
+  #initially zero for ONLY RNN and NOT MLP
   delta_losses = p_ys.loss - n_ys.loss
 
   if sign_delta_loss_scalar:
@@ -94,6 +95,7 @@ def compute_pes_grad(
   # p_ys is of the form [sequence, n_tasks]
   denom = jnp.sum(p_ys.mask, axis=0)
 
+  #initially zero for ONLY RNN and NOT MLP because delta_losses is zero
   last_unroll_loss = jnp.sum(
       delta_losses * (1.0 - has_finished) * p_ys.mask, axis=0) / denom
 
@@ -102,22 +104,28 @@ def compute_pes_grad(
 
   factor = 1.0 / (2 * std**2)
 
+
+  # initially NON-ZERO for RNN and MLP
   accumulator = tree_utils.tree_add(vec_pos, accumulator)
 
   num_tasks = last_unroll_loss.shape[0]
 
   def reshape_to(loss, p):
     return loss.reshape((num_tasks,) + (1,) * (len(p.shape) - 1)) * factor * p
-
+  
+  #initially zero for ONLY RNN and NOT MLP
   es_grad_from_accum = jax.tree_util.tree_map(
       functools.partial(reshape_to, last_unroll_loss), accumulator)
-
+  
+  #initially zero for both RNN and MLP
   es_grad_from_new_perturb = jax.tree_util.tree_map(
       functools.partial(reshape_to, new_unroll_loss), vec_pos)
 
+  #initially zero for ONLY RNN and NOT MLP
   vec_es_grad = jax.tree_util.tree_map(lambda a, b: a + b, es_grad_from_accum,
                                        es_grad_from_new_perturb)
 
+  #initially zero for ONLY RNN and NOT MLP
   es_grad = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), vec_es_grad)
 
   def _switch_one_accum(a, b):
@@ -205,6 +213,8 @@ class TruncatedPES(gradient_learner.GradientEstimator):
       with_summary: bool = False,
       datas_list: Optional[Sequence[Any]] = None,
   ) -> Tuple[gradient_learner.GradientEstimatorOut, Mapping[str, jnp.ndarray]]:
+    DEBUG = True
+
     p_state = state.pos_state
     n_state = state.neg_state
     accumulator = state.accumulator
@@ -214,6 +224,20 @@ class TruncatedPES(gradient_learner.GradientEstimator):
 
     vec_pos, vec_p_theta, vec_n_theta = common.vector_sample_perturbations(
         theta, next(rng), self.std, self.truncated_step.num_tasks)
+    if DEBUG:
+      for k,v in p_state.inner_opt_state.__dict__.items():
+        print("p_state.inner_opt_state."+k)
+        pprint.pprint(jax.tree_map(lambda x:x.sum(),v))
+        print()
+    
+    # if DEBUG:
+    #   print("n_state.inner_opt_state.params")
+    #   pprint.pprint(jax.tree_map(lambda x:x.sum(),n_state.inner_opt_state.params))
+    
+    # if DEBUG:
+    #   print("p_state.inner_opt_state.params")
+    #   pprint.pprint(jax.tree_map(lambda x:x.sum(),p_state.inner_opt_state.params))
+    
     # import pprint
     # print('p_state')
     # pprint.pprint(jax.tree_map(lambda x:x.shape,state.__dict__))
@@ -230,6 +254,9 @@ class TruncatedPES(gradient_learner.GradientEstimator):
     # exit(0)
     # TODO(lmetz) consider switching this to be a jax.lax.scan when inside jit.
     for i in range(self.trunc_length // self.steps_per_jit):
+      if DEBUG:
+        print(f"\n\nTruncatedPES: Iteration {i+1} of {self.trunc_length // self.steps_per_jit}\n")
+
       if datas_list is None:
         if jax_utils.in_jit():
           raise ValueError("Must pass data in when using a jit gradient est.")
@@ -243,6 +270,16 @@ class TruncatedPES(gradient_learner.GradientEstimator):
                                        p_state)
       n_state = jax.tree_util.tree_map(lambda x: jnp.asarray(x, dtype=x.dtype),
                                        n_state)
+      if DEBUG:
+        for k,v in p_state.inner_opt_state.__dict__.items():
+          print("p_state.inner_opt_state."+k)
+          pprint.pprint(jax.tree_map(lambda x:x.sum(),v))
+          print()
+
+      # if DEBUG:
+      #   print("n_state.inner_opt_state.params")
+      #   pprint.pprint(jax.tree_map(lambda x:x.sum(),n_state.inner_opt_state.params))
+
 
       key = next(rng)
 
@@ -269,9 +306,18 @@ class TruncatedPES(gradient_learner.GradientEstimator):
       p_yses.append(p_ys)
       n_yses.append(n_ys)
 
+
+    if DEBUG:
+      for k,v in p_state.inner_opt_state.__dict__.items():
+        print("p_state.inner_opt_state."+k)
+        pprint.pprint(jax.tree_map(lambda x:x.sum(),v))
+        print()
+
     # print("\nBefore maybe_stacked_es_unroll() loop\n")
 
     # print("\nBefore compute_pes_grad()\n")
+
+    import pdb; pdb.set_trace()
 
     loss, es_grad, new_accumulator, p_ys, delta_loss = compute_pes_grad(
         p_yses,
@@ -280,6 +326,7 @@ class TruncatedPES(gradient_learner.GradientEstimator):
         vec_pos,
         self.std,
         sign_delta_loss_scalar=self.sign_delta_loss_scalar)
+    
     
     # print("\nafter compute_pes_grad()\n")
 

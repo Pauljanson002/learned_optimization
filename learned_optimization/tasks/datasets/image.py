@@ -40,7 +40,8 @@ def mnist_datasets(batch_size: int,
 def fashion_mnist_datasets(batch_size: int,
                            image_size: Tuple[int, int] = (28, 28),
                            stack_channels: int = 1,
-                           prefetch_batches: int = 300) -> base.Datasets:
+                           prefetch_batches: int = 300,
+                           **kwargs) -> base.Datasets:
   splits = ("train[0:80%]", "train[80%:90%]", "train[90%:]", "test")
   return base.preload_tfds_image_classification_datasets(
       "fashion_mnist",
@@ -48,7 +49,8 @@ def fashion_mnist_datasets(batch_size: int,
       batch_size=batch_size,
       image_size=image_size,
       stack_channels=stack_channels,
-      prefetch_batches=prefetch_batches)
+      prefetch_batches=prefetch_batches,
+      **kwargs)
 
 
 @base.dataset_lru_cache
