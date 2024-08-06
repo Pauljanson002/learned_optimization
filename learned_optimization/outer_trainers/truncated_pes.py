@@ -213,7 +213,7 @@ class TruncatedPES(gradient_learner.GradientEstimator):
       with_summary: bool = False,
       datas_list: Optional[Sequence[Any]] = None,
   ) -> Tuple[gradient_learner.GradientEstimatorOut, Mapping[str, jnp.ndarray]]:
-    DEBUG = True
+    DEBUG = False
 
     p_state = state.pos_state
     n_state = state.neg_state
@@ -317,7 +317,7 @@ class TruncatedPES(gradient_learner.GradientEstimator):
 
     # print("\nBefore compute_pes_grad()\n")
 
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     loss, es_grad, new_accumulator, p_ys, delta_loss = compute_pes_grad(
         p_yses,
