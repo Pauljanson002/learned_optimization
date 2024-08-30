@@ -43,7 +43,7 @@ def sample_perturbations(variables: T, rng: chex.PRNGKey, std: float) -> T:
   return jax.tree_util.tree_unflatten(tree_def, perturbs)
 
 
-# @functools.partial(jax.jit, static_argnums=(3,))
+@functools.partial(jax.jit, static_argnums=(3,))
 def vector_sample_perturbations(theta: T, key: chex.PRNGKey, std: float,
                                 num_samples: int) -> Tuple[T, T, T]:
   """Sample multiple antithetic ES perturbations."""

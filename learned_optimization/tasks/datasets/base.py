@@ -355,13 +355,24 @@ def preload_tfds_image_classification_datasets(
       "convert_to_black_and_white": convert_to_black_and_white,
   }
 
+  def cast_to_bf16(pytree):
+    """
+    Recursively cast all JAX arrays within a PyTree to BF16.
+    """
+    return jax.tree_map(lambda x: x.astype(jnp.bfloat16) if isinstance(x, jnp.ndarray) and x.dtype == jnp.float32 else x, pytree)
+
+
   def make_python_iter(split: str) -> Iterator[Batch]:
     # load the entire dataset into memory
     with profile.Profile(f"tfds.load({datasetname})"):
       dataset = _cached_tfds_load(datasetname, split=split, batch_size=-1)
     data = tfds.as_numpy(_image_map_fn(cfg, dataset))
+    # data = jax.tree_map(lambda x: jnp.array(x), data)
     print(jax.tree_map(lambda x:x.shape if type(x) != int else x, data))
-
+    # print('before cast_to_bf16',jax.tree_map(lambda x:type(x) if type(x) != int else x, data))
+    # print('before cast_to_bf16',jax.tree_map(lambda x:x.dtype if type(x) != int else x, data))
+    # data = cast_to_bf16(data)
+    # print('after cast_to_bf16',jax.tree_map(lambda x:x.dtype if type(x) != int else x, data))
     # use a python iterator as this is faster than TFDS.
     def generator_fn():
 
@@ -385,16 +396,30 @@ def preload_tfds_image_classification_datasets(
             
           for bi in range(0, batches):
             idxs = idx[bi * batch_size[split]:(bi + 1) * batch_size[split]]
-
-            def index_into(idxs, x):
-              # return x[idxs]
-              #TODO fix hacky label check
-              if len(batch_shape) > 1:
-                return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
-                                   batch_shape + x.shape[1:] )
-              else:
-                return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
-                                   (batch_size[split],) + x.shape[1:] )
+            if jax.process_count() > 1:
+              # print(jax.process_count())
+              def index_into(idxs, x):
+                device = jax.devices('gpu')[jax.process_index()]
+                # return x[idxs]
+                #TODO fix hacky label check
+                if len(batch_shape) > 1:
+                  return jnp.reshape(jax.device_put(x[idxs], device),
+                                    batch_shape + x.shape[1:] )
+                else:
+                  return jnp.reshape(jax.device_put(x[idxs],  device),
+                                    (batch_size[split],) + x.shape[1:] )
+            else:
+              # print(jax.process_count())
+              # exit(0)
+              def index_into(idxs, x):
+                # return x[idxs]
+                #TODO fix hacky label check
+                if len(batch_shape) > 1:
+                  return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
+                                    batch_shape + x.shape[1:] )
+                else:
+                  return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
+                                    (batch_size[split],) + x.shape[1:] )
 
 
             yield jax.tree_util.tree_map(
@@ -418,7 +443,7 @@ def preload_tfds_image_classification_datasets(
   abstract_batch = {
       "image":
           jax.core.ShapedArray(
-              (batch_size[splits[0]],) + image_size + output_channel, dtype=jnp.float32),
+              (batch_size[splits[0]],) + image_size + output_channel, dtype=jnp.bfloat16),
       "label":
           jax.core.ShapedArray((batch_size[splits[0]],), dtype=jnp.int32)
   }
