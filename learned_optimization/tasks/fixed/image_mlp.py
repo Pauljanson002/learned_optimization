@@ -35,7 +35,7 @@ PRNGKey = jnp.ndarray
 
 
 
-class MuMLP(hk.Module):
+class MLP(hk.Module):
   """A multi-layer perceptron module."""
 
   def __init__(
@@ -43,14 +43,13 @@ class MuMLP(hk.Module):
       output_sizes: Iterable[int],
       w_init: Optional[hk.initializers.Initializer] = None,
       b_init: Optional[hk.initializers.Initializer] = None,
-      input_mult=1.0,
-      output_mult=1.0,
       with_bias: bool = True,
       activation: Callable[[jax.Array], jax.Array] = jax.nn.relu,
       activate_final: bool = False,
+      log_activations: bool = False,
       name: Optional[str] = None,
   ):
-    """Constructs an MLP with MuP following table 8 of tensor programs V.
+    """Constructs an MLP.
 
     Args:
       output_sizes: Sequence of layer sizes.
@@ -73,52 +72,20 @@ class MuMLP(hk.Module):
     self.with_bias = with_bias
     self.w_init = w_init
     self.b_init = b_init
-    self.input_mult = input_mult
-    self.output_mult = output_mult
     self.activation = activation
     self.activate_final = activate_final
-    self.get_adam_mup_lr_mul = {}
+    self.log_activations = log_activations
     layers = []
     output_sizes = tuple(output_sizes)
     for index, output_size in enumerate(output_sizes):
-      if index ==0:
-        #input layer
-        layers.append(hk.Linear(output_size=output_size,
-                                w_init=hk.initializers.VarianceScaling(self.input_mult * 1.0, "fan_in",  "normal"),
-                                b_init=hk.initializers.RandomNormal(stddev=1., mean=0.),
-                                with_bias=with_bias,
-                                name="linear_%d" % index))
-        self.get_adam_mup_lr_mul["mu_mlp/~/linear_%d"  % index] = {'w':1.0,'b':1.0}
-        
-      elif index == len(output_sizes) - 1:
-        #output layer
-        layers.append(hk.Linear(output_size=output_size,
-                                w_init=jnp.zeros,# RandomNormal(stddev=1., mean=0.),
-                                b_init=hk.initializers.RandomNormal(stddev=1., mean=0.),
-                                with_bias=with_bias,
-                                name="linear_%d" % index))
-        self.get_adam_mup_lr_mul["mu_mlp/~/linear_%d"  % index] = {'w':1.0,'b':1.0}
-      else:
-        #hidden layer
-        layers.append(hk.Linear(output_size=output_size,
-                                w_init=hk.initializers.VarianceScaling(1.0, "fan_in",  "normal"),
-                                b_init=hk.initializers.RandomNormal(stddev=1., mean=0.),
-                                with_bias=with_bias,
-                                name="linear_%d" % index))
-        self.get_adam_mup_lr_mul["mu_mlp/~/linear_%d"  % index] = {'w':1.0/output_sizes[index-1],'b':1.0}
-        
+      layers.append(hk.Linear(output_size=output_size,
+                              w_init=w_init,
+                              b_init=b_init,
+                              with_bias=with_bias,
+                              name="linear_%d" % index))
     self.layers = tuple(layers)
     self.output_size = output_sizes[-1] if output_sizes else None
-    
-    assert len(output_sizes) >= 2, "need more than one layer for MuMLP"
-    
-    self.output_mul = 1 / output_sizes[-2]
-    hk.set_state("mup_lrs",self.get_adam_mup_lr_mul)
 
-  @property
-  def mup_lrs(self):
-    return hk.get_state("mup_lrs")
-  
   def __call__(
       self,
       inputs: jax.Array,
@@ -142,18 +109,30 @@ class MuMLP(hk.Module):
 
     rng = hk.PRNGSequence(rng) if rng is not None else None
     num_layers = len(self.layers)
+
     out = inputs
     for i, layer in enumerate(self.layers):
       out = layer(out)
-      hk.set_state("layer_%d_act_l1" % i, jnp.mean(jnp.abs(out)))
+
+      if self.log_activations:
+        hk.set_state("layer_%d_pre-act_l1" % i, jnp.mean(jnp.abs(out)))
+        hk.set_state("layer_%d_pre-act" % i, out)
+
       if i < (num_layers - 1) or self.activate_final:
         # Only perform dropout if we are activating the output.
         if dropout_rate is not None:
           out = hk.dropout(next(rng), dropout_rate, out)
         out = self.activation(out)
 
-    return out * self.output_mul
-        
+        if self.log_activations:
+          hk.set_state("layer_%d_act_l1" % i, jnp.mean(jnp.abs(out)))
+          hk.set_state("layer_%d_act" % i, out)
+      else:
+        if self.log_activations:
+          hk.set_state("layer_%d_logits_l1" % i, jnp.mean(jnp.abs(out * self.output_mul)))
+          hk.set_state("layer_%d_logits" % i, out * self.output_mul)
+
+    return out
 
   def reverse(
       self,
@@ -201,7 +180,7 @@ class MuMLP(hk.Module):
     )
     if len(output_sizes) != len(self.layers):
       raise ValueError("You cannot reverse an MLP until it has been called.")
-    return MuMLP(
+    return MLP(
         output_sizes=output_sizes,
         w_init=self.w_init,
         b_init=self.b_init,
@@ -210,67 +189,6 @@ class MuMLP(hk.Module):
         activate_final=activate_final,
         name=name,
     )
-
-
-class MLPOutput(hk.nets.MLP):
-    def __init__(
-      self,
-      # output_mult
-      *args,
-      **kwargs,
-      ):
-      super().__init__(*args, **kwargs)
-      # print(self.layers[0])
-      # import pdb; pdb.set_trace()
-      self.activations_mean = []
-      self.activations_std = []
-      self.output_mul = self.layers[-2].output_size / 128
-  
-    def __call__(
-      self,
-      inputs: jax.Array,
-      dropout_rate: Optional[float] = None,
-      rng=None,
-      ) -> jax.Array:
-        """Connects the module to some inputs.
-
-        Args:
-          inputs: A Tensor of shape ``[batch_size, input_size]``.
-          dropout_rate: Optional dropout rate.
-          rng: Optional RNG key. Require when using dropout.
-
-        Returns:
-          The output of the model of size ``[batch_size, output_size]``.
-        """
-        if dropout_rate is not None and rng is None:
-          raise ValueError("When using dropout an rng key must be passed.")
-        elif dropout_rate is None and rng is not None:
-          raise ValueError("RNG should only be passed when using dropout.")
-
-        rng = hk.PRNGSequence(rng) if rng is not None else None
-        num_layers = len(self.layers)
-
-        # temp_act_mean = []
-        # temp_act_std = []
-        out = inputs
-        for i, layer in enumerate(self.layers):
-          out = layer(out)
-          # temp_act_mean.append(jnp.mean(out))
-          # temp_act_std.append(jnp.std(out))
-
-          if i < (num_layers - 1) or self.activate_final:
-            # Only perform dropout if we are activating the output.
-            if dropout_rate is not None:
-              out = hk.dropout(next(rng), dropout_rate, out)
-            out = self.activation(out)
-
-        # self.activations_mean.append(temp_act_mean)
-        # self.activations_std.append(temp_act_std)
-        
-
-        return out * (1/self.output_mul)
-
-
 
 def find_smallest_divisor(x,b):
   # Start from the smallest possible divisor greater than 1
@@ -289,7 +207,8 @@ class _MLPImageTask(base.Task):
                datasets,
                hidden_sizes,
                act_fn=jax.nn.relu,
-               dropout_rate=0.0):
+               dropout_rate=0.0,
+               log_activations=False):
     super().__init__()
     num_classes = datasets.extra_info["num_classes"]
     sizes = list(hidden_sizes) + [num_classes]
@@ -297,8 +216,8 @@ class _MLPImageTask(base.Task):
 
     def _forward(inp):
       inp = jnp.reshape(inp, [inp.shape[0], -1])
-      return hk.nets.MLP(
-          sizes, activation=act_fn)(
+      return MLP(
+          sizes, activation=act_fn, log_activations=log_activations)(
               inp, dropout_rate=dropout_rate, rng=hk.next_rng_key())
 
     self._mod = hk.transform(_forward)
@@ -352,76 +271,7 @@ class _MLPImageTask(base.Task):
     maxval = 1.5 * onp.log(num_classes)
     loss = jnp.clip(loss, 0, maxval)
     return jnp.nan_to_num(loss, nan=maxval, posinf=maxval, neginf=maxval)
-  
-class _MuMLPImageTask(_MLPImageTask):
-  """MLP based image task."""
-
-  def __init__(self,
-               datasets,
-               hidden_sizes,
-               act_fn=jax.nn.relu,
-               dropout_rate=0.0):
-    super().__init__(
-               datasets,
-               hidden_sizes,
-               act_fn=jax.nn.relu,
-               dropout_rate=0.0)
-    num_classes = datasets.extra_info["num_classes"]
-    sizes = list(hidden_sizes) + [num_classes]
-    self.datasets = datasets
-
-    def _forward(inp):
-      inp = jnp.reshape(inp, [inp.shape[0], -1])
-      return MuMLP( #hk.nets.MLP(
-          sizes, activation=act_fn)(
-              inp, dropout_rate=dropout_rate, rng=hk.next_rng_key())
-
-    self._mod = hk.transform_with_state(_forward)
-
-  def loss_with_state(self, params, state, key, data):
-    num_classes = self.datasets.extra_info["num_classes"]
-    logits, state = self._mod.apply(params, state, key, data["image"])
-    labels = jax.nn.one_hot(data["label"], num_classes)
-    vec_loss = base.softmax_cross_entropy(logits=logits, labels=labels)
-    return jnp.mean(vec_loss), state
-
-  def init_with_state(self, key: PRNGKey) -> base.Params:
-    batch = jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, x.dtype),
-                                   self.datasets.abstract_batch)
-    return self._mod.init(key, batch["image"])
-  
-  def loss_and_accuracy_with_state(self, params: Params, state: State, key: PRNGKey, data: Any) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    num_classes = self.datasets.extra_info["num_classes"]
-
-    threshold = 10000
-    if data["image"].shape[0] > threshold:
-      # If the batch is too large, we split it into smaller chunks.
-      # This is to avoid running out of memory.
-      # This is not necessary for the task to work, but it is useful for
-      # large batch sizes.
-      data["image"] = jnp.array_split(data["image"], 
-                                      find_smallest_divisor(data["image"].shape[0],threshold), 
-                                      axis=0)
-      # print(jax.tree_map(lambda x: x.shape, data["image"]))
-      # exit(0)
-      to_cat = [self._mod.apply(params, state, key, chunk)[0] for chunk in data["image"]]
-
-      logits = jnp.concatenate(to_cat)
-    else:
-      logits = self._mod.apply(params, state, key, data["image"])[0]
-    
-    # Calculate the loss as before
-    labels = jax.nn.one_hot(data["label"], num_classes)
-    vec_loss = base.softmax_cross_entropy(logits=logits, labels=labels)
-    loss = jnp.mean(vec_loss)
-    
-    # Calculate the accuracy
-    predictions = jnp.argmax(logits, axis=-1)
-    actual = data["label"]
-    correct_predictions = predictions == actual
-    accuracy = jnp.mean(correct_predictions.astype(jnp.float32))
-    
-    return loss, accuracy
+ 
 
 
 
