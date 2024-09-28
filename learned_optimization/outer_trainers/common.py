@@ -64,7 +64,7 @@ def vector_sample_perturbations(theta: T, key: chex.PRNGKey, std: float,
 @functools.partial(jax.jit, donate_argnums=(0,), static_argnames=("axis",))
 def _split_tree(tree, axis=0):
   """Split the provided tree in half along `axis`."""
-  assert axis in [0, 1]
+  assert axis in [0, 1],'_split_tree only supports axis 0 or 1'
   if axis == 0:
     num_tasks = tree_utils.first_dim(tree) // 2
     a = jax.tree_util.tree_map(lambda x: x[0:num_tasks], tree)
@@ -83,6 +83,17 @@ def _stack(a, b, axis=0):
                                 a, b)
 
 
+
+import flax
+@flax.struct.dataclass
+class TruncatedUnrollOut:
+  loss: jnp.ndarray
+  is_done: jnp.ndarray
+  task_param: Any
+  iteration: jnp.ndarray
+  mask: jnp.ndarray
+
+# BEN_COMMENTED_JIT
 @functools.partial(
     jax.jit,
     static_argnames=("truncated_step", "with_summary", "unroll_length",
@@ -110,6 +121,7 @@ def truncated_unroll(
         f"got a mismatch in data size. Expected to have data of size: {unroll_length} "
         f"but got data of size {tree_utils.first_dim(datas)}")
 
+
   def step_fn(state, xs):
     key, data = xs
     if override_num_steps is not None:
@@ -126,15 +138,35 @@ def truncated_unroll(
         outer_state=outer_state,
         theta_is_vector=theta_is_vector,
         **extra_kwargs)
-    # print("inside scan after unroll_step()")
+    # print("inside scan after unroll_step() exiting....")
+    # exit(0)
     return state, outs
   
   key_and_data = jax.random.split(key, unroll_length), datas
+
   if wrap_step_fn is not None:
     step_fn = wrap_step_fn(step_fn)
-  # print("before jax.lax.scan(step_fn)")
+
+  # BEN_COMMENTED_JIT
+  #looped implementation for debugging:  
+  # ally = []
+  # for i in range(unroll_length):
+  #   state, ys = step_fn(state, jax.tree_map(lambda s:s[i], key_and_data))
+  #   ally.append(ys)
+
+
+  # ys = ally
+
+  # ys = TruncatedUnrollOut(
+  #         loss=jnp.stack([x.loss for x in ally]),
+  #         is_done=jnp.stack([x.is_done for x in ally]),
+  #         task_param=jnp.stack([x.task_param for x in ally]),
+  #         iteration=jnp.stack([x.iteration for x in ally]),
+  #         mask=jnp.stack([x.mask for x in ally]),
+  # )
+
   state, ys = jax.lax.scan(step_fn, state, key_and_data)
-  # print("after jax.lax.scan(step_fn)")
+
   return state, ys
 
 
@@ -183,11 +215,24 @@ def maybe_stacked_es_unroll(
     p_state, n_state = _split_tree(pn_state)
     p_ys, n_ys = _split_tree(pn_ys, axis=1)
   else:
+
     (p_state, p_ys), m = truncated_unroll(  # pylint: disable=unbalanced-tuple-unpacking,unexpected-keyword-arg,redundant-keyword-arg
         *(static_args +
           [vec_p_theta, key, p_state, datas, outer_state, override_num_steps]),
         with_summary=with_summary,
-        sample_rng_key=sample_rng_key)
+        sample_rng_key=sample_rng_key# BEN_COMMENTED_JIT
+        )
+    
+    # print('p_state',jax.tree_map(lambda x: x.shape, p_state))
+    
+    
+    # print('p_ys',jax.tree_map(lambda x: x.device(), p_ys))
+    # print('p_ys',jax.tree_map(lambda x: x.shape, p_ys))
+    
+    # print('m',jax.tree_map(lambda x: x.shape, m))
+
+    # print('Pos unroll complete exiting...')
+    # exit(0)
     (n_state, n_ys), _ = truncated_unroll(  # pylint: disable=unbalanced-tuple-unpacking,unexpected-keyword-arg,redundant-keyword-arg
         *(static_args +
           [vec_n_theta, key, n_state, datas, outer_state, override_num_steps]),

@@ -198,6 +198,12 @@ def _image_map_fn(cfg: Mapping[str, Any], batch: Batch) -> Batch:
     batch["image"] = tf.reduce_mean(batch["image"], axis=3, keepdims=True)
 
   batch["label"] = tf.cast(batch["label"], tf.int32)
+  
+  # return hk.data_structures.to_immutable_dict({
+  #     "image": jax.device_put(batch["image"],device=jax.devices('gpu')[0]),
+  #     "label": jax.device_put(batch["label"],device=jax.devices('gpu')[0])
+  # })
+  
   return hk.data_structures.to_immutable_dict({
       "image": batch["image"],
       "label": batch["label"]
@@ -253,6 +259,16 @@ def tfds_image_classification_datasets(
     ds = ds.shuffle(shuffle_buffer_size)
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.prefetch(prefetch_batches)
+    ds = jax.device_put(ds,device=jax.devices('gpu')[0])
+    return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
+
+  def make_iter_test(split: str) -> Iterator[Batch]:
+    ds = tfds.load(datasetname, split=split)
+    ds = ds.repeat(-1)
+    ds = ds.map(functools.partial(_image_map_fn, cfg))#,num_parallel_calls=24)
+    ds = ds.shuffle(shuffle_buffer_size)
+    ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.prefetch(1)
     return ThreadSafeIterator(LazyIterator(ds.as_numpy_iterator))
 
   if datasetname == 'imagenet_resized':
@@ -280,8 +296,8 @@ def tfds_image_classification_datasets(
           jax.core.ShapedArray((batch_size,), dtype=jnp.int32)
   }
   return Datasets(
-      *[make_iter(split) for split in splits],
-      extra_info={"num_classes": num_classes},
+      *[make_iter(split) if i == 0 else make_iter_test(split) for i,split in enumerate(splits)],
+      extra_info={"num_classes": num_classes,'name':datasetname},
       abstract_batch=abstract_batch)
 
 
@@ -294,13 +310,16 @@ def _cached_tfds_load(datasetname, split, batch_size):
 def preload_tfds_image_classification_datasets(
     datasetname: str,
     splits: Tuple[str, str, str, str],
-    batch_size: int,
+    batch_size: Tuple[int, int, int, int],
     image_size: Tuple[int, int],
     stack_channels: int = 1,
-    prefetch_batches: int = 1000,
+    prefetch_batches: Tuple[int, int, int, int] = (20,1,1,1),
     normalize_mean: Optional[Tuple[int, int, int]] = None,
     normalize_std: Optional[Tuple[int, int, int]] = None,
     convert_to_black_and_white: Optional[bool] = False,
+    batch_shape=None,
+    label_sharding=None,
+    image_sharding=None
 ) -> Datasets:
   """Load an image dataset with tfds by first loading into host ram.
 
@@ -319,6 +338,11 @@ def preload_tfds_image_classification_datasets(
   Returns:
     A Datasets object containing data iterators.
   """
+  assert len(splits) == len(prefetch_batches), 'number of splits and prefetch_batches should be the same'
+  assert len(splits) == len(batch_size), 'number of splits and batch_size should be the same'
+  prefetch_batches = {splits[i]:prefetch_batches[i] for i in range(len(splits))}
+  batch_size = {splits[i]:batch_size[i] for i in range(len(splits))}
+
   cfg = {
       "batch_size": batch_size,
       "image_size": image_size,
@@ -331,7 +355,11 @@ def preload_tfds_image_classification_datasets(
       "convert_to_black_and_white": convert_to_black_and_white,
   }
 
-    
+  def cast_to_bf16(pytree):
+    """
+    Recursively cast all JAX arrays within a PyTree to BF16.
+    """
+    return jax.tree_map(lambda x: x.astype(jnp.bfloat16) if isinstance(x, jnp.ndarray) and x.dtype == jnp.float32 else x, pytree)
 
 
   def make_python_iter(split: str) -> Iterator[Batch]:
@@ -339,36 +367,66 @@ def preload_tfds_image_classification_datasets(
     with profile.Profile(f"tfds.load({datasetname})"):
       dataset = _cached_tfds_load(datasetname, split=split, batch_size=-1)
     data = tfds.as_numpy(_image_map_fn(cfg, dataset))
-
+    # data = jax.tree_map(lambda x: jnp.array(x), data)
+    print(jax.tree_map(lambda x:x.shape if type(x) != int else x, data))
+    # print('before cast_to_bf16',jax.tree_map(lambda x:type(x) if type(x) != int else x, data))
+    # print('before cast_to_bf16',jax.tree_map(lambda x:x.dtype if type(x) != int else x, data))
+    # data = cast_to_bf16(data)
+    # print('after cast_to_bf16',jax.tree_map(lambda x:x.dtype if type(x) != int else x, data))
     # use a python iterator as this is faster than TFDS.
     def generator_fn():
 
       def iter_fn():
         
-        if batch_size > data["image"].shape[0]:
-          warnings.warn('Batch size is larger than dataset size. Possible'
-                  ' duplicate samples in batch/', Warning)
+        if batch_size[split] > data["image"].shape[0]:
+          warnings.warn('For {} split {}, batch size ({}) is larger than dataset size ({}). Possible'
+                  ' duplicate samples in batch/'.format(datasetname,split,batch_size[split],data["image"].shape[0]), Warning)
           batches = 1
-          idx = onp.arange(batch_size) % data["image"].shape[0]
+          idx = onp.arange(batch_size[split]) % data["image"].shape[0]
         else:
-          batches = data["image"].shape[0] // batch_size
+          batches = data["image"].shape[0] // batch_size[split]
           idx = onp.arange(data["image"].shape[0])
-
 
         while True:
           # every epoch shuffle indicies
           onp.random.shuffle(idx)
-          for bi in range(0, batches):
-            idxs = idx[bi * batch_size:(bi + 1) * batch_size]
 
-            def index_into(idxs, x):
-              return x[idxs]
+          # if split != 'validation':
+          #   print('\nshuffled idx: ', idx[:10] ,split)
+            
+          for bi in range(0, batches):
+            idxs = idx[bi * batch_size[split]:(bi + 1) * batch_size[split]]
+            if jax.process_count() > 1:
+              # print(jax.process_count())
+              def index_into(idxs, x):
+                device = jax.devices('gpu')[jax.process_index()]
+                # return x[idxs]
+                #TODO fix hacky label check
+                if len(batch_shape) > 1:
+                  return jnp.reshape(jax.device_put(x[idxs], device),
+                                    batch_shape + x.shape[1:] )
+                else:
+                  return jnp.reshape(jax.device_put(x[idxs],  device),
+                                    (batch_size[split],) + x.shape[1:] )
+            else:
+              # print(jax.process_count())
+              # exit(0)
+              def index_into(idxs, x):
+                # return x[idxs]
+                #TODO fix hacky label check
+                if len(batch_shape) > 1:
+                  return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
+                                    batch_shape + x.shape[1:] )
+                else:
+                  return jnp.reshape(jax.device_put(x[idxs], image_sharding if len(x.shape) > 1 else label_sharding),
+                                    (batch_size[split],) + x.shape[1:] )
+
 
             yield jax.tree_util.tree_map(
                 functools.partial(index_into, idxs), data)
-
-      return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches)
-
+      
+      return prefetch_iterator.PrefetchIterator(iter_fn(), prefetch_batches[split])
+      
     return ThreadSafeIterator(LazyIterator(generator_fn))
 
   builder = tfds.builder(datasetname)
@@ -384,14 +442,14 @@ def preload_tfds_image_classification_datasets(
 
   abstract_batch = {
       "image":
-          jax.ShapedArray(
-              (batch_size,) + image_size + output_channel, dtype=jnp.float32),
+          jax.core.ShapedArray(
+              (batch_size[splits[0]],) + image_size + output_channel, dtype=jnp.bfloat16),
       "label":
-          jax.ShapedArray((batch_size,), dtype=jnp.int32)
+          jax.core.ShapedArray((batch_size[splits[0]],), dtype=jnp.int32)
   }
   return Datasets(
       *[make_python_iter(split) for split in splits],
-      extra_info={"num_classes": num_classes},
+      extra_info={"num_classes": num_classes, 'name':datasetname},
       abstract_batch=abstract_batch)
 
 
@@ -522,5 +580,5 @@ def tfrecord_image_classification_datasets(
 
   return Datasets(
       *[make_python_iter(split) for split in splits],
-      extra_info={"num_classes": num_classes_map[datasetname]},
+      extra_info={"num_classes": num_classes_map[datasetname],'name':datasetname},
       abstract_batch=abstract_batch)

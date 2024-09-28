@@ -52,7 +52,10 @@ def _crop_or_pad(value, size, pad_token):
 
 
 def _load(name, tokenizer, batch_size: int, sequence_length: int,
-          split) -> Tuple[tf.data.Dataset, int]:
+          split,
+          label_sharding=None,
+          image_sharding=None,
+          batch_shape=(1,)) -> Tuple[tf.data.Dataset, int]:
   """Load tfds tf.data.Dataset in a streaming fashion."""
   ds = tfds.load(name, split=split, shuffle_files=True)
 
@@ -64,38 +67,61 @@ def _load(name, tokenizer, batch_size: int, sequence_length: int,
 
   # Create the language modeling observation/target pairs and batch them up.
   def create_lm_obs_target(t):
-    return hk.data_structures.to_immutable_dict(dict(obs=t[:-1], target=t[1:]))
+    # return dict(obs=t[:-1], target=t[1:])
+    return hk.data_structures.to_immutable_dict(dict(image=t[:-1], label=t[1:]))
 
   ds = ds.map(create_lm_obs_target)
   ds = ds.batch(batch_size, drop_remainder=True)
+  ds = ds.map(lambda x: jax.tree_map(lambda xx:tf.reshape(xx,batch_shape + (sequence_length,)),x))
   ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
   ds = tfds.as_numpy(ds)
+  
   return ds
 
 
 def _make_datasets(tfds_datasetname: str,
-                   vocab: seqio.vocabularies.Vocabulary,
-                   batch_size: int,
+                   vocab: str,
+                   batch_size: list,
                    sequence_length: int,
-                   has_test: bool = True) -> base.Datasets:
+                   has_test: bool = True,
+                   prefetch_batches = [1,1,1,1],
+                   label_sharding=None,
+                   image_sharding=None,
+                   batch_shape=None,
+                   ) -> base.Datasets:
   """Make Datasets object from tokenized tfds dataset."""
+  if vocab == 'bytes':
+    vocab = get_bytes_vocab()
+  elif vocab == 'sentencepiece':
+    vocab = get_32k_sentence_piece_vocab()
+  else:
+    raise ValueError(f'Unknown vocab type {vocab}')
+  
   if has_test:
     splits = ['train[2%:100%]', 'train[0%:1%]', 'train[1%:2%]', 'test']
   else:
     splits = ['train[3%:100%]', 'train[0%:1%]', 'train[1%:2%]', 'train[2%:3%]']
 
+  assert len(splits) == len(prefetch_batches), 'number of splits and prefetch_batches should be the same'
+  assert len(splits) == len(batch_size), 'number of splits and batch_size should be the same'
+  prefetch_batches = {splits[i]:prefetch_batches[i] for i in range(len(splits))}
+  batch_size = {splits[i]:batch_size[i] for i in range(len(splits))}
+
+
   def make(split):
 
     def iterator_fn():
-      it = _load(tfds_datasetname, vocab, batch_size, sequence_length, split)
+      it = _load(tfds_datasetname, vocab, batch_size[split], 
+                 sequence_length, split, label_sharding, 
+                 image_sharding, batch_shape)
       return iter(it)
 
     return base.ThreadSafeIterator(base.LazyIterator(iterator_fn))
 
   train, inner_valid, outer_valid, test = [make(split) for split in splits]
   abstract_batch = {
-      'image': jax.core.ShapedArray((batch_size, sequence_length), jnp.int32),
-      'label': jax.core.ShapedArray((batch_size, sequence_length), jnp.int32),
+      'image': jax.core.ShapedArray((batch_size[splits[0]], sequence_length), jnp.int32),
+      'label': jax.core.ShapedArray((batch_size[splits[0]], sequence_length), jnp.int32),
   }
   return base.Datasets(
       train=train,
@@ -104,7 +130,8 @@ def _make_datasets(tfds_datasetname: str,
       test=test,
       extra_info={
           'vocab_size': vocab.vocab_size,
-          'vocab': vocab
+          'vocab': vocab,
+          'name':f'lm1b-s{sequence_length}-{vocab}'
       },
       abstract_batch=abstract_batch)
 

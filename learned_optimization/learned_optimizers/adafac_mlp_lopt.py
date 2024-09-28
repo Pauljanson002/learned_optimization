@@ -29,6 +29,7 @@ from learned_optimization.learned_optimizers import base as lopt_base
 from learned_optimization.learned_optimizers import common
 from learned_optimization.optimizers import base as opt_base
 import numpy as onp
+import optax
 
 PRNGKey = jnp.ndarray
 
@@ -82,7 +83,8 @@ class AdafacMLPLOpt(lopt_base.LearnedOptimizer):
                initial_adafactor_decays=(0.9, 0.99, 0.999),
                concat_weights=True,
                make_separate_weights=False,
-               split_weights=False):
+               split_weights=False,
+               clip_grad=False):
     super().__init__()
     self._exp_mult = exp_mult
     self._step_mult = step_mult
@@ -94,6 +96,7 @@ class AdafacMLPLOpt(lopt_base.LearnedOptimizer):
     self._concat_weights = concat_weights
     self._make_separate_weights = make_separate_weights
     self._split_weights = split_weights
+    self.clip_grad = clip_grad
 
     self._mod_init, self._mod_apply = hk.without_apply_rng(
         hk.transform(self._mod))
@@ -411,6 +414,13 @@ class AdafacMLPLOpt(lopt_base.LearnedOptimizer):
                  model_state: Optional[opt_base.ModelState] = None,
                  is_valid: bool = False,
                  key: Optional[PRNGKey] = None) -> AdafacMLPLOptState:
+        
+        if parent.clip_grad:
+          clip_norm = 1.0  
+          clipping = optax.clip_by_global_norm(clip_norm)
+          grad, _ = clipping.update(grad, None)
+
+        grad = jax.tree_util.tree_map(lambda x: jnp.nan_to_num(x), grad)
 
         mom_roll, rms_roll, fac_vec_roll = self._get_rolling()
         next_mom_rolling = mom_roll.update(opt_state.mom_rolling, grad)

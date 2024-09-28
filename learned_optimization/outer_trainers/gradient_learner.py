@@ -198,11 +198,16 @@ class GradientLearner:
 
       # To load a checkpoint, the state of the target object must be specified,
       # so we pass fake values here.
-      fake_param_checkpoint = ParameterCheckpoint(
-          params=theta_init, gen_id="", step=0)
-      real_param_checkpoint = checkpoints.load_state(self._init_theta_from_path,
-                                                     fake_param_checkpoint)
-      theta_init = real_param_checkpoint.params
+      # fake_param_checkpoint = ParameterCheckpoint(
+      #     params=theta_init, gen_id="", step=0)
+      # print("fake_param_checkpoint",fake_param_checkpoint)
+      # real_param_checkpoint = checkpoints.load_state(self._init_theta_from_path,
+      #                                                fake_param_checkpoint)
+      # theta_init = real_param_checkpoint.params
+
+      import pickle
+      with open(self._init_theta_from_path, "rb") as f:
+        theta_init = pickle.load(f)
 
     theta_opt_state = self._theta_opt.init(
         theta_init, model_state, num_steps=self._num_steps)
@@ -251,6 +256,7 @@ class GradientLearner:
 
     with profile.Profile("stack_grad"):
       grads_stack = tree_utils.tree_zip_onp([t.theta_grads for t in grads_list])
+      
     with profile.Profile("mean_grad"):
       grads = _tree_mean_onp(grads_stack)
 
@@ -390,7 +396,7 @@ def gradient_worker_compute(
   unroll_states_out = []
   losses = []
   event_info = []
-
+  
   assert len(gradient_estimators) == len(unroll_states)
 
   for si, (estimator,
@@ -408,8 +414,8 @@ def gradient_worker_compute(
         # print("\n\n before estimator.compute_gradient_estimate()\n\n")
         estimator_out, metrics = estimator.compute_gradient_estimate(
             worker_weights, rng, unroll_state, with_summary=with_metrics)
-        
         # print("\n\n after estimator.compute_gradient_estimate()\n\n")
+
 
       unroll_states_out.append(estimator_out.unroll_state)
       losses.append(estimator_out.mean_loss)
@@ -468,6 +474,9 @@ def gradient_worker_compute(
 
       metrics_list.append(metrics)
 
+
+  # where communication should happen
+
   with profile.Profile("mean_grads"):
     grads_accum = tree_utils.tree_div(grads_accum, len(gradient_estimators))
     mean_loss = jnp.mean(jnp.asarray(losses))
@@ -519,7 +528,8 @@ class SingleMachineGradientLearner:
                meta_init: MetaInitializer,
                gradient_estimators: Sequence[GradientEstimator],
                theta_opt: opt_base.Optimizer,
-               num_steps: Optional[int] = None):
+               num_steps: Optional[int] = None,
+               device: Optional[jax.lib.xla_client.Device] = None):
     """Initializer.
 
     Args:
@@ -584,12 +594,124 @@ class SingleMachineGradientLearner:
         state.gradient_learner_state)
     
     # print("\n\nbefore grad worker compute\n\n")
+
+    #this  is where we perform the full unroll
     worker_compute_out = gradient_worker_compute(
         worker_weights,
         self.gradient_estimators,
         state.gradient_estimator_states,
         key=key1,
         with_metrics=with_metrics)
+    # print("\n\nafter grad worker compute\n\n")
+
+    next_gradient_estimator_states = worker_compute_out.unroll_states
+    next_theta_state, metrics = self.gradient_learner.update(
+        state.gradient_learner_state, [worker_compute_out.to_put],
+        key=key2,
+        with_metrics=with_metrics)
+
+    metrics = summary.aggregate_metric_list(
+        [worker_compute_out.metrics, metrics])
+
+    return (SingleMachineState(
+        gradient_learner_state=next_theta_state,
+        gradient_estimator_states=next_gradient_estimator_states),
+            worker_compute_out.to_put.mean_loss, metrics)
+
+  def get_meta_params(self, state: SingleMachineState) -> lopt_base.MetaParams:
+    """Get the weights of the learned optimizer."""
+    return self.gradient_learner.get_meta_params(state.gradient_learner_state)
+
+
+
+
+
+
+class MultipleMachineGradientLearner:
+  """Train with gradient estimators on a single machine.
+
+  This is a convience wrapper calling the multi-worker interface -- namley
+  both `GradientLearner` and `gradient_worker_compute`.
+  """
+
+  def __init__(self,
+               meta_init: MetaInitializer,
+               gradient_estimators: Sequence[GradientEstimator],
+               theta_opt: opt_base.Optimizer,
+               num_steps: Optional[int] = None,
+               device: Optional[jax.lib.xla_client.Device] = None):
+    """Initializer.
+
+    Args:
+      meta_init: Class containing an init function to construct outer params.
+      gradient_estimators: Sequence of gradient estimators used to calculate
+        gradients.
+      theta_opt: The optimizer used to train the weights of the learned opt.
+      num_steps: Number of meta-training steps used by optimizer for schedules.
+    """
+    self.gradient_learner = GradientLearner(
+        meta_init, theta_opt, num_steps=num_steps)
+    self.gradient_estimators = gradient_estimators
+    self.device = device
+
+  def init(self, key: PRNGKey) -> SingleMachineState:
+    """Initial state.
+
+    This initializes the learned optimizer weights randomly, and set's up
+    optimizer variables for these weights. Additionally the first state of the
+    gradient estimators is also initialized.
+
+    Args:
+      key: jax rng
+
+    Returns:
+      The initial state
+    """
+
+    key1, key = jax.random.split(key)
+    theta_state = self.gradient_learner.init(key1)
+    worker_weights = self.gradient_learner.get_state_for_worker(theta_state)
+    keys = jax.random.split(key, len(self.gradient_estimators))
+    unroll_states = [
+        grad_est.init_worker_state(worker_weights, key)
+        for key, grad_est in zip(keys, self.gradient_estimators)
+    ]
+
+    return SingleMachineState(
+        gradient_learner_state=theta_state,
+        gradient_estimator_states=unroll_states)
+
+  def update(
+      self,
+      state,
+      key: PRNGKey,
+      with_metrics: Optional[bool] = False
+  ) -> Tuple[SingleMachineState, jnp.ndarray, Mapping[str, jnp.ndarray]]:
+    """Perform one outer-update to train the learned optimizer.
+
+    Args:
+      state: State of this class
+      key: jax rng
+      with_metrics: To compute metrics or not
+
+    Returns:
+      state: The next state from this class
+      loss: loss from the current iteration
+      metrics: dictionary of metrics computed
+    """
+    # print("in update()\n\n")
+    key1, key2 = jax.random.split(key)
+    worker_weights = self.gradient_learner.get_state_for_worker(
+        state.gradient_learner_state)
+    
+    # print("\n\nbefore grad worker compute\n\n")
+    worker_compute_out = gradient_worker_compute(
+        worker_weights,
+        self.gradient_estimators,
+        state.gradient_estimator_states,
+        key=key1,
+        with_metrics=with_metrics,
+        device=self.device)
     # print("\n\nafter grad worker compute\n\n")
 
     next_gradient_estimator_states = worker_compute_out.unroll_states
